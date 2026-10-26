@@ -17,6 +17,7 @@
 - 2026-10-25 Keychron mice: the sniper button sends KEY_F8 through the receiver's keyboard interface ("Keychron  Keychron Link  Keyboard", double spaces), and receivers appear as several devices. ydotoold's virtual device also reports side buttons; ignore it or typed text echoes back.
 - 2026-10-25 pystray on GNOME needs PyGObject (builds from PyPI on Arch) and the AppIndicator extension. In the built-in browser pane, `document.hidden` is true, so the page must fetch once regardless of visibility.
 - 2026-10-25 A GitHub wiki's git repo (`<repo>.wiki.git`) does not exist until someone saves the first page in the web UI; `gh repo edit --enable-wiki` alone is not enough. The wiki repo is the only copy of the wiki pages; edit them there.
+- 2026-10-26 After rewriting commits to drop an author, GitHub's repo-page Contributors sidebar stays stale even when the contributors API is already clean. Switching the default branch away and back to the same name does not refresh it; renaming the default branch (`master` → `main`) did, at once. The global git identity is AIkry; this repo sets a local Gerard Wu / GerardWu100 identity.
 
 ## Failed approaches
 
