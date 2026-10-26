@@ -1,0 +1,46 @@
+# Credentials and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.*
+secrets.*
+
+# Local environments, caches, and test artifacts
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+
+# Logs and build artifacts
+logs/
+*.log
+build/
+dist/
+*.egg-info/
+
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+__MACOSX/
+._*
+*~
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Agent tool state (regenerated per machine and per tool version)
+.serena/
+
+# Project
+*.partial

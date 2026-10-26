@@ -1,0 +1,32 @@
+[project]
+name = "claude-dictation-anywhere"
+version = "0.1.0"
+description = "Hold a key, speak, and Claude Code's own /voice dictation types the words into any app"
+readme = "README.md"
+authors = [
+    { name = "Gerard Wu", email = "230164507+GerardWu100@users.noreply.github.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "evdev>=2.0.0 ; sys_platform == 'linux'",
+    "pillow>=13.0.0",
+    "pygobject>=3.58.1 ; sys_platform == 'linux'",
+    "pynput>=1.8.2 ; sys_platform == 'darwin'",
+    "pystray>=0.19.5",
+    "tomli-w>=1.2.0",
+]
+
+[project.scripts]
+claude-dictation-anywhere = "claude_dictation_anywhere.app:main"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17.2",
+]
+
+[tool.ruff]
+line-length = 100
