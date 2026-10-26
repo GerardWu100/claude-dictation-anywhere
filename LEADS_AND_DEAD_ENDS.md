@@ -16,6 +16,8 @@
 - 2026-10-25 Keychron mice: the sniper button sends KEY_F8 through the receiver's keyboard interface ("Keychron  Keychron Link  Keyboard", double spaces), and receivers appear as several devices. ydotoold's virtual device also reports side buttons; ignore it or typed text echoes back.
 - 2026-10-25 pystray on GNOME needs PyGObject (builds from PyPI on Arch) and the AppIndicator extension. In the built-in browser pane, `document.hidden` is true, so the page must fetch once regardless of visibility.
 
+- 2026-10-25 A GitHub wiki's git repo (`<repo>.wiki.git`) does not exist until someone saves the first page in the web UI; `gh repo edit --enable-wiki` alone is not enough. Wiki pages are drafted in this conversation's scratchpad, not tracked here; the wiki repo is their home.
+
 ## Failed approaches
 
 - 2026-10-25 Codex dictation. *disproved*. Codex CLI 0.164 has no dictation code. The ChatGPT/Codex desktop app's global dictation is app-scoped on Linux and cannot paste there. Its `chatgpt.com/backend-api/transcribe` endpoint answers scripts with a 403 bot-check page; do not try to get around it.

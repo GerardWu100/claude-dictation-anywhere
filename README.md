@@ -38,6 +38,8 @@ Wispr Flow details as published in October 2026; check its site for current plan
 
 ![Settings page](docs/settings-page.png)
 
+📖 **[Wiki](https://github.com/GerardWu100/claude-dictation-anywhere/wiki):** installation, how it works, choosing a shortcut, troubleshooting, FAQ.
+
 ## How it works
 
 ```
