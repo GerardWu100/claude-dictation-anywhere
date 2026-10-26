@@ -11,6 +11,8 @@ Routes (all JSON except the page itself):
 Every /api request must carry the header ``X-CDA-Token`` with a random token
 that is only written into the page. Other web pages you visit cannot read the
 page, so they cannot learn the token or change settings behind your back.
+POST bodies must fit within MAX_BODY_BYTES; invalid lengths and non-object
+settings payloads receive HTTP 400 without applying settings.
 """
 
 import json
@@ -103,9 +105,11 @@ class SettingsPage:
             def do_POST(self):
                 if not self._authorised():
                     return
-                length = min(int(self.headers.get("Content-Length") or 0), MAX_BODY_BYTES)
-                body = self.rfile.read(length) if length else b"{}"
                 try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                    if not 0 <= length <= MAX_BODY_BYTES:
+                        raise ValueError(f"Content-Length must be 0-{MAX_BODY_BYTES}")
+                    body = self.rfile.read(length) if length else b"{}"
                     data = json.loads(body or b"{}")
                     if self.path == "/api/settings":
                         page.controller.update_settings(data)

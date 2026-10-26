@@ -103,8 +103,10 @@ def check_settings(update: dict) -> dict:
     Raises
     ------
     ValueError
-        If a known setting has the wrong type or a value outside its choices.
+        If update is not a dict, or a known setting has the wrong type or value.
     """
+    if not isinstance(update, dict):
+        raise ValueError("settings must be a JSON object")  # noqa: TRY004 - validation API
     clean = {}
     for name, value in update.items():
         if name not in DEFAULT_SETTINGS:

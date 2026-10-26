@@ -16,11 +16,13 @@ import os
 import selectors
 import threading
 import time
+from contextlib import ExitStack
 
 from .settings import IS_MAC
 
 log = logging.getLogger(__name__)
 
+LISTENER_STOP_TIMEOUT_S = 2
 PASSTHROUGH_DEVICE_NAME = "claude-dictation-anywhere passthrough"
 # Virtual devices that replay synthetic events; listening to them would echo
 # ydotool's own typing or our own passthrough back into the trigger.
@@ -122,12 +124,15 @@ else:
 
     def _real_devices() -> list["evdev.InputDevice"]:
         devices = []
-        for path in evdev.list_devices():
-            device = evdev.InputDevice(path)
-            if device.name.startswith(IGNORED_DEVICE_PREFIXES):
-                device.close()
-            else:
-                devices.append(device)
+        with ExitStack() as opened:
+            for path in evdev.list_devices():
+                device = evdev.InputDevice(path)
+                if device.name.startswith(IGNORED_DEVICE_PREFIXES):
+                    device.close()
+                else:
+                    opened.callback(device.close)
+                    devices.append(device)
+            opened.pop_all()
         return devices
 
     def _code_name(code: int) -> str:
@@ -155,67 +160,88 @@ else:
             self.grab = settings["grab"]
             self.on_down, self.on_up = on_down, on_up
             self._thread: threading.Thread | None = None
+            self._pipe_lock = threading.Lock()
             self._wake_read, self._wake_write = os.pipe()  # writing here stops the loop
 
         def start(self) -> None:
-            key_code = ecodes.ecodes.get(self.key)
-            if key_code is None:
-                raise ValueError(f"Unknown key code {self.key!r}")
-            devices = [
-                d
-                for d in _real_devices()
-                if key_code in d.capabilities().get(ecodes.EV_KEY, [])
-                and self.device_name in ("", d.name)
-            ]
-            if not devices:
-                raise ValueError(
-                    f"No input device has {describe_shortcut(self.key, self.device_name)}"
+            with ExitStack() as resources:
+                resources.callback(self._close_pipes)
+                key_code = ecodes.ecodes.get(self.key)
+                if key_code is None:
+                    raise ValueError(f"Unknown key code {self.key!r}")
+                devices = _real_devices()
+                for device in devices:
+                    resources.callback(device.close)
+                devices = [
+                    d
+                    for d in devices
+                    if key_code in d.capabilities().get(ecodes.EV_KEY, [])
+                    and self.device_name in ("", d.name)
+                ]
+                if not devices:
+                    raise ValueError(
+                        f"No input device has {describe_shortcut(self.key, self.device_name)}"
+                    )
+                selector = resources.enter_context(selectors.DefaultSelector())
+                selector.register(self._wake_read, selectors.EVENT_READ)
+                passthrough = {}
+                for device in devices:
+                    if self.grab:
+                        twin = evdev.UInput.from_device(device, name=PASSTHROUGH_DEVICE_NAME)
+                        resources.callback(twin.close)
+                        passthrough[device.fd] = twin
+                        device.grab()
+                    selector.register(device, selectors.EVENT_READ)
+                    log.info("listening for %s on %s (%s)", self.key, device.path, device.name)
+                # Device close releases the exclusive grab, including on setup failure.
+                owned = resources.pop_all()
+                self._thread = threading.Thread(
+                    target=self._loop, args=(key_code, selector, passthrough, owned), daemon=True
                 )
-            self._thread = threading.Thread(
-                target=self._loop, args=(key_code, devices), daemon=True
-            )
-            self._thread.start()
+                try:
+                    self._thread.start()
+                except BaseException:
+                    self._thread = None
+                    owned.close()
+                    raise
+
+        def _close_pipes(self) -> None:
+            """Release wake descriptors only after the worker has stopped using them."""
+            with self._pipe_lock:
+                for attribute in ("_wake_read", "_wake_write"):
+                    fd = getattr(self, attribute)
+                    if fd is not None:
+                        os.close(fd)
+                        setattr(self, attribute, None)
 
         def stop(self) -> None:
-            os.write(self._wake_write, b"x")
+            with self._pipe_lock:
+                if self._wake_write is not None:
+                    os.write(self._wake_write, b"x")
             if self._thread:
-                self._thread.join(timeout=2)
+                self._thread.join(timeout=LISTENER_STOP_TIMEOUT_S)
+            else:
+                self._close_pipes()
 
-        def _loop(self, key_code: int, devices: list) -> None:
-            passthrough = {}
-            selector = selectors.DefaultSelector()
-            selector.register(self._wake_read, selectors.EVENT_READ)
-            for device in devices:
-                if self.grab:
-                    passthrough[device.fd] = evdev.UInput.from_device(
-                        device, name=PASSTHROUGH_DEVICE_NAME
-                    )
-                    device.grab()
-                selector.register(device, selectors.EVENT_READ)
-                log.info("listening for %s on %s (%s)", self.key, device.path, device.name)
+        def _loop(self, key_code, selector, passthrough, resources) -> None:
             try:
-                while True:
-                    for selected, _ in selector.select():
-                        if selected.fileobj == self._wake_read:
-                            return
-                        device = selected.fileobj
-                        for event in device.read():
-                            if event.type == ecodes.EV_KEY and event.code == key_code:
-                                if event.value == 1:
-                                    self.on_down()
-                                elif event.value == 0:
-                                    self.on_up()
-                                continue  # swallow the trigger (value 2 = auto-repeat)
-                            if device.fd in passthrough:
-                                passthrough[device.fd].write_event(event)
-            except OSError as error:  # device unplugged
+                with resources:
+                    while True:
+                        for selected, _ in selector.select():
+                            if selected.fileobj == self._wake_read:
+                                return
+                            device = selected.fileobj
+                            for event in device.read():
+                                if event.type == ecodes.EV_KEY and event.code == key_code:
+                                    if event.value == 1:
+                                        self.on_down()
+                                    elif event.value == 0:
+                                        self.on_up()
+                                    continue
+                                if device.fd in passthrough:
+                                    passthrough[device.fd].write_event(event)
+            except OSError as error:
                 log.warning("input device stopped: %s", error)
-            finally:
-                for device in devices:
-                    if device.fd in passthrough:
-                        device.ungrab()
-                        passthrough[device.fd].close()
-                    device.close()
 
     def capture_next_input(timeout_s: float) -> tuple[str, str] | None:
         """Wait for the next key or button press on any real device; return (code, device name).
@@ -229,12 +255,15 @@ else:
             ecodes.BTN_TOUCH,
             ecodes.BTN_TOOL_FINGER,
         }
-        devices = [d for d in _real_devices() if ecodes.EV_KEY in d.capabilities()]
-        selector = selectors.DefaultSelector()
-        for device in devices:
-            selector.register(device, selectors.EVENT_READ)
-        end = time.monotonic() + timeout_s
-        try:
+        with ExitStack() as resources:
+            devices = _real_devices()
+            for device in devices:
+                resources.callback(device.close)
+            selector = resources.enter_context(selectors.DefaultSelector())
+            for device in devices:
+                if ecodes.EV_KEY in device.capabilities():
+                    selector.register(device, selectors.EVENT_READ)
+            end = time.monotonic() + timeout_s
             while (remaining := end - time.monotonic()) > 0:
                 for selected, _ in selector.select(timeout=remaining):
                     for event in selected.fileobj.read():
@@ -244,7 +273,4 @@ else:
                             and event.code not in skip
                         ):
                             return _code_name(event.code), selected.fileobj.name
-            return None
-        finally:
-            for device in devices:
-                device.close()
+        return None

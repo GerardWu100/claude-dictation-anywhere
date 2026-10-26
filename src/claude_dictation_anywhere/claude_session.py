@@ -246,6 +246,11 @@ class ClaudeVoiceSession:
         except ChildProcessError:
             finished_pid = self.pid
         if finished_pid == self.pid:
+            if self.fd is not None:
+                try:
+                    os.close(self.fd)
+                except OSError:
+                    pass
             self.pid = self.fd = None
             return False
         return True
