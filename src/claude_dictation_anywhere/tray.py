@@ -4,8 +4,15 @@ Linux uses AppIndicator (GNOME needs the AppIndicator extension, which most
 distributions ship); macOS uses the menu bar.
 """
 
+import threading
+
 import pystray
 from PIL import Image, ImageDraw
+
+from .settings import IS_MAC
+
+if IS_MAC:
+    from PyObjCTools.AppHelper import callAfter
 
 ICON_SIZE = 64
 # RGB colour of the round badge for each state.
@@ -65,12 +72,22 @@ class TrayIcon:
         controller.on_change.append(self.refresh)
 
     def refresh(self, controller) -> None:
+        if IS_MAC and threading.current_thread() is not threading.main_thread():
+            callAfter(self.refresh, controller)
+            return
         self.icon.icon = draw_icon(controller.state)
         self.icon.title = f"Claude Dictation Anywhere: {STATE_TITLES.get(controller.state, '')}"
         self.icon.update_menu()
 
     def run(self) -> None:
-        self.icon.run()
+        if IS_MAC:
+            # pystray runs setup on a worker; AppKit visibility belongs on the main loop.
+            self.icon.run(setup=lambda icon: callAfter(setattr, icon, "visible", True))
+        else:
+            self.icon.run()
 
     def stop(self) -> None:
+        if IS_MAC and threading.current_thread() is not threading.main_thread():
+            callAfter(self.stop)
+            return
         self.icon.stop()

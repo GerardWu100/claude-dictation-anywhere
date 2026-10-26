@@ -7,6 +7,7 @@
 - 2026-10-25 The hidden session runs in its own empty folder (`<data dir>/dictation`), outside any git repo, because Claude Code feeds the folder name and git branch to dictation as word hints. The app answers the first-run "trust this folder" prompt itself; the session has no tools, so that is safe.
 
 ## Gotchas
+- 2026-10-25 macOS AppKit crashes if a controller worker updates the tray menu directly. Dispatch tray refresh, visibility, and stop to the main event loop; Linux permits the existing worker updates.
 
 - 2026-10-25 A hidden `claude` started from inside another Claude Code session inherits `CLAUDE_*` / `ANTHROPIC_*` variables and shows "Not logged in". Strip them.
 - 2026-10-25 `claude --bare` disables OAuth, so `/voice` is unavailable; use `--safe-mode`. `--safe-mode` plus voice settings passed through `--settings` does record. `--no-session-persistence` only works with `--print`.
