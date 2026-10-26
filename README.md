@@ -1,12 +1,42 @@
 # Claude Dictation Anywhere
 
-**Hold a key, speak, let go: your words appear wherever the cursor is.** A Google search box, Slack, an email, a terminal. The speech-to-text is Claude Code's own `/voice` dictation, borrowed from the Claude Code already installed on your computer.
+**Borrow Claude Code's dictation and use it anywhere.** Hold a key, speak, let go: your words appear wherever the cursor is. A Google search box, Slack, an email, a terminal.
 
-> Unofficial. Not made by or affiliated with Anthropic. "Claude" and "Claude Code" are Anthropic's trademarks.
+A free alternative to paid dictation apps like Wispr Flow. If you already pay for Claude, there's no second subscription.
+
+![Platforms: Linux, macOS](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-d97757)
+![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue)
+![Cost: free with Claude](https://img.shields.io/badge/cost-free%20with%20Claude-2ea44f)
+
+> Unofficial. Not made by or affiliated with Anthropic. "Claude" and "Claude Code" are Anthropic's trademarks. Wispr Flow is a trademark of its owner.
 
 ## Why
 
-Claude Code's dictation is fast and accurate, and it comes with your Claude subscription: it does not use Claude messages or tokens, and it doesn't count toward your usage limits. But it only works inside Claude Code. This app makes it work in every app.
+Claude Code's `/voice` dictation is quick and accurate, and it comes with your Claude subscription: it doesn't use Claude messages or tokens, and it doesn't count toward your usage limits. But it only works inside Claude Code. This app makes it work in every app.
+
+|  | Claude Dictation Anywhere | Wispr Flow |
+|---|---|---|
+| Price | Free with a Claude subscription you already have | Free tier capped at 2,000 words/week; Pro about \$15/month |
+| Linux | ✅ (Wayland and X11) | No Linux app listed |
+| macOS | ✅ (not yet tested) | ✅ |
+| Windows | ❌ | ✅ |
+| Speech engine | Claude Code's own `/voice` | Wispr's own service |
+| Word limits | None of its own | Free tier capped |
+| Code | Source on GitHub | Closed |
+
+Wispr Flow details as published in October 2026; check its site for current plans.
+
+## Features
+
+- 🎙 **Push-to-talk or toggle:** hold the shortcut, or press once to start and again to stop.
+- ⌨️ **Any key or mouse button:** function keys, right Ctrl or Command, mouse side or sniper buttons. Set it by pressing it.
+- 📋 **Typed and copied:** text lands at your cursor and on your clipboard.
+- 🕘 **History:** every transcript is kept on your computer, ready to copy again.
+- 🟠 **Always visible:** tray icon colours plus a short sound show when it's listening.
+- 🌍 **20 languages:** every language Claude Code's dictation supports.
+- 🪶 **Uses your own Claude Code:** nothing bundled, no API key, no extra account.
+
+![Settings page](docs/settings-page.png)
 
 ## How it works
 
