@@ -116,3 +116,7 @@ The settings page is served only on `127.0.0.1`, behind a random token for each 
 - On GNOME Wayland, if you switch windows while it is transcribing, the text goes into the new window.
 - Anthropic's consumer terms limit automated use of its services. This app sends one ordinary dictation per key press through the real Claude Code, but Anthropic hasn't endorsed using it this way. Use it at your own judgment.
 
+
+## License
+
+[MIT](LICENSE)

@@ -3,6 +3,8 @@ name = "claude-dictation-anywhere"
 version = "0.1.0"
 description = "Hold a key, speak, and Claude Code's own /voice dictation types the words into any app"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Gerard Wu", email = "230164507+GerardWu100@users.noreply.github.com" }
 ]
