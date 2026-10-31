@@ -34,16 +34,22 @@ STATE_TITLES = {
 }
 
 
-def draw_icon(state: str) -> Image.Image:
-    """A white microphone on a coloured circle."""
-    image = Image.new("RGBA", (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
+def draw_icon(state: str, size: int = ICON_SIZE) -> Image.Image:
+    """A white microphone on a coloured circle, drawn on a 64-unit grid scaled to ``size`` px."""
+    scale = size / ICON_SIZE
+
+    def box(*units):
+        return tuple(round(unit * scale) for unit in units)
+
+    line_width = max(1, round(4 * scale))
+    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    draw.ellipse((2, 2, 62, 62), fill=STATE_COLOURS.get(state, STATE_COLOURS["idle"]))
+    draw.ellipse(box(2, 2, 62, 62), fill=STATE_COLOURS.get(state, STATE_COLOURS["idle"]))
     white = (255, 255, 255, 255)
-    draw.rounded_rectangle((25, 13, 39, 37), radius=7, fill=white)  # capsule
-    draw.arc((19, 22, 45, 45), start=0, end=180, fill=white, width=4)  # cradle
-    draw.line((32, 45, 32, 51), fill=white, width=4)  # stem
-    draw.line((24, 51, 40, 51), fill=white, width=4)  # base
+    draw.rounded_rectangle(box(25, 13, 39, 37), radius=round(7 * scale), fill=white)  # capsule
+    draw.arc(box(19, 22, 45, 45), start=0, end=180, fill=white, width=line_width)  # cradle
+    draw.line(box(32, 45, 32, 51), fill=white, width=line_width)  # stem
+    draw.line(box(24, 51, 40, 51), fill=white, width=line_width)  # base
     return image
 
 

@@ -5,6 +5,7 @@ Usage
 claude-dictation-anywhere              # tray app (uv run claude-dictation-anywhere from the repo)
 claude-dictation-anywhere --open       # also open the settings page in your browser
 claude-dictation-anywhere --test 5     # record 5 s, print the text, nothing typed
+claude-dictation-anywhere --install-launcher    # Linux: show it in the desktop's app search
 
 Threads: on Linux the tray icon runs its GTK loop in a background thread and the
 main thread waits, so Ctrl+C works; on macOS AppKit requires the tray on the
@@ -27,9 +28,10 @@ from .claude_session import (
     find_claude,
 )
 from .controller import DictationController
+from .launcher import install_launcher, uninstall_launcher
 from .settings import IS_MAC, data_dir, load_settings, runtime_dir, settings_path
 from .tray import TrayIcon
-from .web_ui import SettingsPage
+from .web_ui import SettingsPage, open_in_browser, running_page_url_path
 
 log = logging.getLogger("claude_dictation_anywhere")
 
@@ -43,12 +45,19 @@ def next_log_path():
     return log_dir / f"{today}_{max(taken, default=0) + 1:03d}.log"
 
 
-def hold_single_instance_lock():
-    """Exit if another copy already runs; two would fight over the shortcut."""
+def hold_single_instance_lock(open_running_page: bool):
+    """Exit if another copy already runs; two would fight over the shortcut.
+
+    With ``open_running_page`` (the app launcher passes --open), first open the
+    running copy's settings page, so clicking the launcher always shows something.
+    """
     handle = open(runtime_dir() / "app.lock", "w")  # noqa: SIM115 - kept open to hold the lock
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
+        url_path = running_page_url_path()
+        if open_running_page and url_path.exists():
+            open_in_browser(url_path.read_text(encoding="utf-8"))
         sys.exit("Claude Dictation Anywhere is already running (look for its tray icon).")
     return handle
 
@@ -84,14 +93,27 @@ def main() -> None:
     parser.add_argument(
         "--test", type=float, metavar="SECONDS", help="record this long, print the text"
     )
+    if not IS_MAC:
+        parser.add_argument(
+            "--install-launcher", action="store_true", help="show the app in the app search"
+        )
+        parser.add_argument(
+            "--uninstall-launcher", action="store_true", help="remove it from the app search"
+        )
     args = parser.parse_args()
+    if getattr(args, "install_launcher", False):
+        install_launcher()
+        return
+    if getattr(args, "uninstall_launcher", False):
+        uninstall_launcher()
+        return
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         handlers=[logging.FileHandler(next_log_path()), logging.StreamHandler()],
     )
-    lock = hold_single_instance_lock()  # noqa: F841 - held until exit
+    lock = hold_single_instance_lock(args.open)  # noqa: F841 - held until exit
     if args.test:
         run_test(args.test)
         return

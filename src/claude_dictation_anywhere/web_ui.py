@@ -24,13 +24,18 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 
-from .settings import IS_MAC
+from .settings import IS_MAC, runtime_dir
 
 log = logging.getLogger(__name__)
 
 PREFERRED_PORT = 47821  # fixed so a bookmark keeps working; any free port if taken
 HOST = "127.0.0.1"
 MAX_BODY_BYTES = 64_000
+
+
+def running_page_url_path():
+    """Where the running copy writes its page address, so a second launch can open it."""
+    return runtime_dir() / "settings_url"
 
 
 def open_in_browser(url: str) -> None:
@@ -61,6 +66,7 @@ class SettingsPage:
         threading.Thread(
             target=self.server.serve_forever, daemon=True, name="settings-page"
         ).start()
+        running_page_url_path().write_text(self.url, encoding="utf-8")
         log.info("settings page at %s", self.url)
 
     def open(self) -> None:
@@ -68,6 +74,7 @@ class SettingsPage:
 
     def stop(self) -> None:
         self.server.shutdown()
+        running_page_url_path().unlink(missing_ok=True)
 
     def _handler(self):
         page = self

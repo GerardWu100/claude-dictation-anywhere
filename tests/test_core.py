@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from claude_dictation_anywhere import claude_session, history, hotkeys, output, settings
@@ -111,3 +112,22 @@ class OutputAndShortcutTest(unittest.TestCase):
 if __name__ == "__main__":
     os.environ.setdefault("XDG_RUNTIME_DIR", tempfile.gettempdir())
     unittest.main()
+
+
+class LauncherTest(unittest.TestCase):
+    def test_install_writes_entry_and_icon_then_uninstall_removes_them(self):
+        from claude_dictation_anywhere import launcher
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            unittest.mock.patch.dict(os.environ, {"XDG_DATA_HOME": tmp}),
+            unittest.mock.patch.object(launcher, "app_command", return_value="/x/cda"),
+        ):
+            launcher.install_launcher()
+            entry = launcher.desktop_file_path().read_text()
+            self.assertIn('Exec="/x/cda" --open\n', entry)
+            self.assertIn(f"Icon={settings.APP_NAME}\n", entry)
+            self.assertGreater(launcher.icon_path().stat().st_size, 0)
+            launcher.uninstall_launcher()
+            self.assertFalse(launcher.desktop_file_path().exists())
+            self.assertFalse(launcher.icon_path().exists())
