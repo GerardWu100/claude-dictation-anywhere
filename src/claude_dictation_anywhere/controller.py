@@ -17,7 +17,7 @@ import queue
 import threading
 import time
 
-from . import feedback, hotkeys, output
+from . import feedback, hotkeys, output, system_audio
 from .claude_session import (
     KEY_REPEAT_INTERVAL_S,
     ClaudeVoiceSession,
@@ -70,12 +70,14 @@ class DictationController:
     # ---- public: called by the app, the tray, and the settings page ----
 
     def start(self) -> None:
+        system_audio.restore_output()  # in case an earlier copy died while recording
         self._start_listener()
         threading.Thread(target=self._worker, daemon=True, name="dictation").start()
         if self.settings["prewarm"]:
             self.events.put("prewarm")
 
     def shutdown(self) -> None:
+        system_audio.restore_output()
         if self.listener:
             self.listener.stop()
         if self.session:
@@ -242,20 +244,28 @@ class DictationController:
         self._banner(
             "🎙 Listening… " + ("(press again to finish)" if toggle else "(release to finish)")
         )
+        mute = self.settings["mute_while_dictating"]
         if self.settings["sounds"]:
-            feedback.play_sound("start")
+            # Let the start sound finish first, or muting would cut it off.
+            feedback.play_sound("start", wait=mute)
+        if mute:
+            system_audio.mute_output()
         started = time.monotonic()
-        self.session.begin_hold()
-        # Before: shortcut down, prompt box empty. Hold Space until the stop signal:
-        # hold mode stops on "up"; toggle mode ignores "up" and stops on the next "down".
-        while time.monotonic() - started < MAX_RECORDING_S:
-            self.session.press_space()
-            try:
-                event = self.events.get(timeout=KEY_REPEAT_INTERVAL_S)
-            except queue.Empty:
-                continue
-            if (event == "up" and not toggle) or (event == "down" and toggle):
-                break
+        try:
+            self.session.begin_hold()
+            # Before: shortcut down, prompt box empty. Hold Space until the stop signal:
+            # hold mode stops on "up"; toggle mode ignores "up" and stops on the next "down".
+            while time.monotonic() - started < MAX_RECORDING_S:
+                self.session.press_space()
+                try:
+                    event = self.events.get(timeout=KEY_REPEAT_INTERVAL_S)
+                except queue.Empty:
+                    continue
+                if (event == "up" and not toggle) or (event == "down" and toggle):
+                    break
+        finally:
+            # Recording is over; transcribing needs no silence, so sound comes back at once.
+            system_audio.restore_output()
         # After: Claude Code has the recording; fetch the finished transcript.
         seconds = time.monotonic() - started
         self._set_state("transcribing")

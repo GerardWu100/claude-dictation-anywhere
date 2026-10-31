@@ -58,6 +58,9 @@ DEFAULT_SETTINGS = {
     "notifications": True,
     # Play a short sound when recording starts and stops.
     "sounds": True,
+    # Mute the speakers while recording, so music or a podcast isn't dictated too.
+    # Unmuted when you release; left muted if it already was.
+    "mute_while_dictating": True,
     # Keep a history of transcripts on this computer (shown on the settings page).
     "history": True,
     # Path to the `claude` program. "" = find the Claude Code installed on this system.

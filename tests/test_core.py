@@ -131,3 +131,32 @@ class LauncherTest(unittest.TestCase):
             launcher.uninstall_launcher()
             self.assertFalse(launcher.desktop_file_path().exists())
             self.assertFalse(launcher.icon_path().exists())
+
+
+class MuteWhileDictatingTest(unittest.TestCase):
+    def run_with_output(self, muted_before: bool):
+        """Mute then restore; returns the set_output_muted calls."""
+        from claude_dictation_anywhere import system_audio
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            unittest.mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": tmp}),
+            unittest.mock.patch.object(system_audio, "output_muted", return_value=muted_before),
+            unittest.mock.patch.object(system_audio, "set_output_muted") as set_muted,
+        ):
+            system_audio.mute_output()
+            system_audio.restore_output()
+            system_audio.restore_output()  # a second restore (e.g. at shutdown) does nothing
+            return [call.args[0] for call in set_muted.call_args_list]
+
+    def test_playing_output_is_muted_then_unmuted_once(self):
+        self.assertEqual(self.run_with_output(muted_before=False), [True, False])
+
+    def test_already_muted_output_is_left_alone(self):
+        self.assertEqual(self.run_with_output(muted_before=True), [])
+
+    def test_failing_mixer_never_raises(self):
+        from claude_dictation_anywhere import system_audio
+
+        with unittest.mock.patch.object(system_audio, "output_muted", side_effect=OSError("x")):
+            system_audio.mute_output()

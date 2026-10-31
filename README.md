@@ -32,6 +32,7 @@ Wispr Flow details as published in October 2026; check its site for current plan
 - ⌨️ **Any key or mouse button:** function keys, right Ctrl or Command, mouse side or sniper buttons. Set it by pressing it.
 - 📋 **Typed and copied:** text lands at your cursor and on your clipboard.
 - 🕘 **History:** every transcript is kept on your computer, ready to copy again.
+- 🔇 **Mutes your speakers while you talk:** music or a podcast playing in any app won't leak into the transcript. Sound comes back the moment you let go. On by default.
 - 🟠 **Always visible:** tray icon colours plus a short sound show when it's listening.
 - 🌍 **20 languages:** every language Claude Code's dictation supports.
 - 🪶 **Uses your own Claude Code:** nothing bundled, no API key, no extra account.
@@ -99,6 +100,7 @@ All of these are on the settings page:
 - **Shortcut:** press **Change…**, then press any key or mouse button. Function keys, right-hand modifiers, and mouse side or sniper buttons all work. Keys that type text are refused.
 - **Mode:** *Hold to talk*, or *Press to start, press to stop*.
 - **Text:** type it, paste it, or don't insert it. Optionally also copy it to the clipboard.
+- **Mute the speakers while recording:** on by default. Mutes the default output (your volume level is untouched) and unmutes when you release; if it was already muted, it stays muted.
 - **Language:** any of the 20 languages Claude Code's dictation supports.
 - **Memory:**
   - The hidden Claude Code uses about 250 MB. Turn off *Start Claude Code with the app* and it only starts on your first press, adding about 2 seconds that once.

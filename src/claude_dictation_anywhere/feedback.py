@@ -32,6 +32,7 @@ SOUNDS = (
     )
 )
 SOUND_PLAYERS = ("afplay",) if IS_MAC else ("pw-play", "paplay")
+SOUND_WAIT_TIMEOUT_S = 2
 
 
 class Banner:
@@ -64,9 +65,13 @@ class Banner:
         self.notification_id = 0
 
 
-def play_sound(which: str) -> None:
-    """Play the "start" or "stop" sound without waiting for it to finish."""
+def play_sound(which: str, wait: bool = False) -> None:
+    """Play the "start" or "stop" sound; ``wait`` blocks until it ends (about 0.2 s)."""
     path = SOUNDS[0] if which == "start" else SOUNDS[1]
     player = next((p for p in SOUND_PLAYERS if shutil.which(p)), None)
     if player and Path(path).exists():
-        subprocess.Popen([player, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        sound = subprocess.Popen(
+            [player, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        if wait:
+            sound.wait(timeout=SOUND_WAIT_TIMEOUT_S)

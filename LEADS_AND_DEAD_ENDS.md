@@ -5,6 +5,7 @@
 - 2026-10-25 Drive the real Claude Code CLI in a pty instead of calling its voice WebSocket with the token from `~/.claude/.credentials.json`. Anthropic's consumer terms (Feb 2026) allow subscription OAuth only inside Claude Code and Claude.ai; a homemade client risks the account.
 - 2026-10-25 Settings and history live on a localhost browser page, not a native window. A Tk window was built and rejected by the user as ugly (Tk 9 on GNOME: tiny fonts, huge checkboxes); the browser page is simpler.
 - 2026-10-25 The hidden session runs in its own empty folder (`<data dir>/dictation`), outside any git repo, because Claude Code feeds the folder name and git branch to dictation as word hints. The app answers the first-run "trust this folder" prompt itself; the session has no tools, so that is safe.
+- 2026-10-31 Silence other audio during recording by muting the default output, not by pausing players (players live in different browsers/apps; MPRIS pause was unreliable for the user) and not by setting volume 0 (mute leaves the level untouched). Mute after the start sound ends, unmute at release rather than after transcription.
 
 ## Gotchas
 - 2026-10-25 macOS AppKit crashes if a controller worker updates the tray menu directly. Dispatch tray refresh, visibility, and stop to the main event loop; Linux permits the existing worker updates.
