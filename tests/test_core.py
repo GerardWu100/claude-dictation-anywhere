@@ -37,7 +37,9 @@ class ClaudeCommandTest(unittest.TestCase):
             Path("/result.txt"),
         )
         self.assertEqual(env["PATH"], "/usr/bin")
-        self.assertFalse([k for k in env if k.startswith(("CLAUDE", "ANTHROPIC"))])
+        inherited = {"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"}
+        self.assertFalse(inherited & env.keys())
+        self.assertEqual(env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], "1")
         self.assertEqual(env["EDITOR"], "/hook.sh")
         self.assertEqual(env["CDA_RESULT"], "/result.txt")
 

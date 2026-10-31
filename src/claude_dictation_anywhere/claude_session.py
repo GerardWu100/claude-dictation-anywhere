@@ -93,9 +93,17 @@ NO_VOICE_HELP = (
 
 # Flags for the hidden session, all standard Claude Code options. Safe mode
 # skips your CLAUDE.md, hooks, plugins, skills, and MCP servers, so none of your
-# own setup runs in it. No tools: even a prompt sent by mistake could not touch
-# files or run commands.
-CLAUDE_BASE_FLAGS = ["--safe-mode", "--tools", ""]
+# own setup runs in it; without it, startup also stops at dialogs such as
+# "Claude in Chrome detected". No MCP config and no slash commands save another
+# ~4 MB. No tools: even a prompt sent by mistake could not touch files or run
+# commands.
+CLAUDE_BASE_FLAGS = [
+    "--safe-mode",
+    "--strict-mcp-config",
+    "--disable-slash-commands",
+    "--tools",
+    "",
+]
 
 # Stand-in "text editor" Claude Code runs on Ctrl+G. It copies the prompt file
 # (its last argument) to the hand-off path and empties it, clearing the box.
@@ -184,7 +192,10 @@ def build_claude_env(base_env: dict[str, str], hook: Path, result: Path) -> dict
         EDITOR=str(hook),
         VISUAL=str(hook),
         CDA_RESULT=str(result),
-        DISABLE_AUTOUPDATER="1",  # never update itself mid-dictation
+        # Standard Claude Code switch for the auto-updater, telemetry, error reports,
+        # and the feedback command: never updates itself mid-dictation, and saves
+        # ~16 MB (PSS 184 -> 168 MB measured). Dictation still works with it.
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
     )
     return env
 
