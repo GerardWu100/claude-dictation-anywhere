@@ -19,8 +19,14 @@ log = logging.getLogger(__name__)
 # 2 ms keeps 100 characters under half a second; raise both if an app drops keys.
 YDOTOOL_KEY_DELAY_MS = 2
 YDOTOOL_KEY_HOLD_MS = 2
-# ydotool uses Linux key codes: 29 = Left Ctrl, 47 = V; ":1" is down, ":0" up.
+# ydotool uses Linux key codes: 29 = Left Ctrl, 47 = V, 42 = Left Shift; ":1" is
+# down, ":0" up.
 YDOTOOL_CTRL_V = ["29:1", "47:1", "47:0", "29:0"]
+# Some apps (seen in the Claude desktop app's chat box) drop the first ~40 ms of
+# synthetic keys, ~10 characters, while their text field or input method wakes
+# up. A Shift tap types nothing but wakes it; the pause lets it finish.
+YDOTOOL_WAKE_KEY = ["42:1", "42:0"]
+WAKE_BEFORE_TYPING_S = 0.25
 # Give the clipboard owner a moment before pasting, or some apps paste the old content.
 PASTE_AFTER_COPY_S = 0.15
 
@@ -94,6 +100,8 @@ def insert_text(text: str, method: str) -> None:
         time.sleep(PASTE_AFTER_COPY_S)
         subprocess.run(["ydotool", "key", *YDOTOOL_CTRL_V], check=True)
         return
+    subprocess.run(["ydotool", "key", *YDOTOOL_WAKE_KEY], check=True)
+    time.sleep(WAKE_BEFORE_TYPING_S)
     subprocess.run(
         ["ydotool", "type", "--key-delay", str(YDOTOOL_KEY_DELAY_MS),
          "--key-hold", str(YDOTOOL_KEY_HOLD_MS), "--escape", "0", "--file", "-"],

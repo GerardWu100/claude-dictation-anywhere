@@ -21,6 +21,7 @@
 - 2026-10-25 pystray on GNOME needs PyGObject (builds from PyPI on Arch) and the AppIndicator extension. In the built-in browser pane, `document.hidden` is true, so the page must fetch once regardless of visibility.
 - 2026-10-25 A GitHub wiki's git repo (`<repo>.wiki.git`) does not exist until someone saves the first page in the web UI; `gh repo edit --enable-wiki` alone is not enough. The wiki repo is the only copy of the wiki pages; edit them there.
 - 2026-10-26 After rewriting commits to drop an author, GitHub's repo-page Contributors sidebar stays stale even when the contributors API is already clean. Switching the default branch away and back to the same name does not refresh it; renaming the default branch (`master` → `main`) did, at once. The global git identity is AIkry; this repo sets a local Gerard Wu / GerardWu100 identity.
+- 2026-10-31 The Claude desktop app's chat box drops the first ~10 characters (~40 ms) of ydotool typing; history had the full transcripts, and the same typing into kgx or a Brave textarea lost nothing (muting, sounds, and the banner ruled out). Felt like "dictation misses my first words" though the recording was fine: compare history with the typed text first.
 
 ## Failed approaches
 
