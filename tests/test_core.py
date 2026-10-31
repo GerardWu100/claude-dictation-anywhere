@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -160,3 +161,54 @@ class MuteWhileDictatingTest(unittest.TestCase):
 
         with unittest.mock.patch.object(system_audio, "output_muted", side_effect=OSError("x")):
             system_audio.mute_output()
+
+
+class RecordingStartTest(unittest.TestCase):
+    def test_spaces_start_before_slow_feedback_and_quick_press_unmutes(self):
+        from claude_dictation_anywhere import controller as controller_module
+
+        calls = []  # (what, seconds since the press)
+
+        class FakeSession:
+            def is_alive(self):
+                return True
+
+            def begin_hold(self):
+                pass
+
+            def press_space(self):
+                calls.append(("space", time.monotonic() - pressed))
+
+            def collect_transcript(self):
+                return ""
+
+        def slow_sound(*_args, **_kwargs):
+            time.sleep(0.3)
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            unittest.mock.patch.dict(os.environ, {"XDG_DATA_HOME": tmp}),
+            unittest.mock.patch.object(controller_module, "find_claude", return_value=""),
+            unittest.mock.patch.object(controller_module.feedback, "play_sound", slow_sound),
+            unittest.mock.patch.object(
+                controller_module.system_audio,
+                "mute_output",
+                lambda: calls.append(("mute", time.monotonic() - pressed)),
+            ),
+            unittest.mock.patch.object(
+                controller_module.system_audio,
+                "restore_output",
+                lambda: calls.append(("restore", time.monotonic() - pressed)),
+            ),
+        ):
+            controller = controller_module.DictationController(dict(settings.DEFAULT_SETTINGS))
+            controller.settings["notifications"] = False
+            controller.session = FakeSession()
+            controller.events.put("up")  # released almost at once
+            pressed = time.monotonic()
+            controller._dictate_once()
+
+        names = [name for name, _ in calls]
+        self.assertEqual(names[0], "space")
+        self.assertLess(calls[0][1], 0.05)
+        self.assertLess(names.index("mute"), names.index("restore"))

@@ -52,8 +52,9 @@ DEFAULT_SETTINGS = {
     # Start the hidden Claude Code when the app starts, so the first press records at once.
     "prewarm": True,
     # Quit the hidden Claude Code after this many idle minutes to free about 250 MB.
-    # 0 = keep it running.
-    "idle_shutdown_minutes": 15,
+    # The next press then waits 1-3 s for it to restart, and words spoken meanwhile
+    # are lost. 0 = keep it running, so every press records at once.
+    "idle_shutdown_minutes": 0,
     # Linux: show a "Listening / Transcribing" banner. The tray icon always changes colour.
     "notifications": True,
     # Play a short sound when recording starts and stops.

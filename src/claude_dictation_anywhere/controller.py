@@ -240,19 +240,16 @@ class DictationController:
         self.last_used = time.monotonic()
         self._ensure_session()
         toggle = self.settings["mode"] == "toggle"
-        self._set_state("listening")
-        self._banner(
-            "🎙 Listening… " + ("(press again to finish)" if toggle else "(release to finish)")
-        )
-        mute = self.settings["mute_while_dictating"]
-        if self.settings["sounds"]:
-            # Let the start sound finish first, or muting would cut it off.
-            feedback.play_sound("start", wait=mute)
-        if mute:
-            system_audio.mute_output()
         started = time.monotonic()
+        # Claude Code needs ~0.15 s of repeated Spaces before it records, and words
+        # spoken before that are lost. So the Spaces start at once, and the tray,
+        # banner, sound, and mute (~0.3 s together) run beside them.
+        self.session.begin_hold()
+        announcer = threading.Thread(
+            target=self._announce_recording, args=(toggle,), daemon=True, name="announce"
+        )
+        announcer.start()
         try:
-            self.session.begin_hold()
             # Before: shortcut down, prompt box empty. Hold Space until the stop signal:
             # hold mode stops on "up"; toggle mode ignores "up" and stops on the next "down".
             while time.monotonic() - started < MAX_RECORDING_S:
@@ -264,6 +261,9 @@ class DictationController:
                 if (event == "up" and not toggle) or (event == "down" and toggle):
                     break
         finally:
+            # A very short press can end before the announcer has muted; wait, or the
+            # unmute below would run first and leave the speakers muted.
+            announcer.join()
             # Recording is over; transcribing needs no silence, so sound comes back at once.
             system_audio.restore_output()
         # After: Claude Code has the recording; fetch the finished transcript.
@@ -285,6 +285,19 @@ class DictationController:
             output.deliver(text, self.settings)
         except Exception as error:
             raise DictationError(f"Got the text but could not insert it: {error}") from error
+
+    def _announce_recording(self, toggle: bool) -> None:
+        """Show "listening" (tray, banner, sound), then mute the speakers if set."""
+        self._set_state("listening")
+        self._banner(
+            "🎙 Listening… " + ("(press again to finish)" if toggle else "(release to finish)")
+        )
+        mute = self.settings["mute_while_dictating"]
+        if self.settings["sounds"]:
+            # Let the start sound finish first, or muting would cut it off.
+            feedback.play_sound("start", wait=mute)
+        if mute:
+            system_audio.mute_output()
 
     def _banner(self, title: str) -> None:
         if self.settings["notifications"]:

@@ -104,7 +104,7 @@ All of these are on the settings page:
 - **Language:** any of the 20 languages Claude Code's dictation supports.
 - **Memory:**
   - The hidden Claude Code uses about 250 MB. Turn off *Start Claude Code with the app* and it only starts on your first press, adding about 2 seconds that once.
-  - It quits after a set number of idle minutes (default 15).
+  - By default it keeps running, so every press records at once. You can have it quit after a set number of idle minutes instead; the next press then waits 1–3 seconds for it to restart, and words spoken during that wait are lost.
 - **History:** recent transcripts, with copy buttons. The history is stored only on your computer, and you can turn it off.
 
 Command-line check without any shortcut: `claude-dictation-anywhere --test 5` records 5 seconds and prints the text.

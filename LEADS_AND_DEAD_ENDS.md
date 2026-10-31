@@ -6,6 +6,7 @@
 - 2026-10-25 Settings and history live on a localhost browser page, not a native window. A Tk window was built and rejected by the user as ugly (Tk 9 on GNOME: tiny fonts, huge checkboxes); the browser page is simpler.
 - 2026-10-25 The hidden session runs in its own empty folder (`<data dir>/dictation`), outside any git repo, because Claude Code feeds the folder name and git branch to dictation as word hints. The app answers the first-run "trust this folder" prompt itself; the session has no tools, so that is safe.
 - 2026-10-31 Silence other audio during recording by muting the default output, not by pausing players (players live in different browsers/apps; MPRIS pause was unreliable for the user) and not by setting volume 0 (mute leaves the level untouched). Mute after the start sound ends, unmute at release rather than after transcription.
+- 2026-10-31 Keep the hidden Claude Code running by default (`idle_shutdown_minutes = 0`). A cold start costs 1-3 s, and users start talking at the press, so the first words were lost after every idle break; 250 MB is the price.
 
 ## Gotchas
 - 2026-10-25 macOS AppKit crashes if a controller worker updates the tray menu directly. Dispatch tray refresh, visibility, and stop to the main event loop; Linux permits the existing worker updates.
@@ -14,7 +15,7 @@
 - 2026-10-25 `claude --bare` disables OAuth, so `/voice` is unavailable; use `--safe-mode`. `--safe-mode` plus voice settings passed through `--settings` does record. `--no-session-persistence` only works with `--print`.
 - 2026-10-25 "Not logged in" appears a few seconds after the prompt draws, so a startup check misses it; detect leftover typed spaces after a hold instead.
 - 2026-10-25 With escape codes stripped, Claude Code's screen often has no spaces between words (they are cursor moves), and its renderer redraws only changed cells: the recording footer reads "listning…". Match markers with whitespace removed, and never rely on the word "listening".
-- 2026-10-25 Voice warm-up is short: "keep holding…" at 0.04 s, recording at about 0.13 s after the first repeated space.
+- 2026-10-31 Voice warm-up on a running session: "keep holding…" at 0.06 s, "listening" at 0.15 s, first microphone levels at 0.24 s after the first repeated space. Words spoken before that are lost, so nothing may run between the key press and the first Space; the start sound alone takes 0.27 s with pw-play.
 - 2026-10-25 Keychron mice: the sniper button sends KEY_F8 through the receiver's keyboard interface ("Keychron  Keychron Link  Keyboard", double spaces), and receivers appear as several devices. ydotoold's virtual device also reports side buttons; ignore it or typed text echoes back.
 - 2026-10-25 pystray on GNOME needs PyGObject (builds from PyPI on Arch) and the AppIndicator extension. In the built-in browser pane, `document.hidden` is true, so the page must fetch once regardless of visibility.
 - 2026-10-25 A GitHub wiki's git repo (`<repo>.wiki.git`) does not exist until someone saves the first page in the web UI; `gh repo edit --enable-wiki` alone is not enough. The wiki repo is the only copy of the wiki pages; edit them there.
