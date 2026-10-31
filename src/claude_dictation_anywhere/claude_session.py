@@ -91,16 +91,11 @@ NO_VOICE_HELP = (
     "Usually it is not logged in: run `claude`, type /login, then try /voice once."
 )
 
-# Flags for the hidden session. Safe mode, no MCP servers and no skills cut
-# startup work and memory (about 270 MB -> 250 MB measured). No tools: even a
-# prompt sent by mistake could not touch files or run commands.
-CLAUDE_BASE_FLAGS = [
-    "--safe-mode",
-    "--strict-mcp-config",
-    "--disable-slash-commands",
-    "--tools",
-    "",
-]
+# Flags for the hidden session, all standard Claude Code options. Safe mode
+# skips your CLAUDE.md, hooks, plugins, skills, and MCP servers, so none of your
+# own setup runs in it. No tools: even a prompt sent by mistake could not touch
+# files or run commands.
+CLAUDE_BASE_FLAGS = ["--safe-mode", "--tools", ""]
 
 # Stand-in "text editor" Claude Code runs on Ctrl+G. It copies the prompt file
 # (its last argument) to the hand-off path and empties it, clearing the box.

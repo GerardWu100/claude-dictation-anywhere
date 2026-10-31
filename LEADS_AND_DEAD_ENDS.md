@@ -7,6 +7,7 @@
 - 2026-10-25 The hidden session runs in its own empty folder (`<data dir>/dictation`), outside any git repo, because Claude Code feeds the folder name and git branch to dictation as word hints. The app answers the first-run "trust this folder" prompt itself; the session has no tools, so that is safe.
 - 2026-10-31 Silence other audio during recording by muting the default output, not by pausing players (players live in different browsers/apps; MPRIS pause was unreliable for the user) and not by setting volume 0 (mute leaves the level untouched). Mute after the start sound ends, unmute at release rather than after transcription.
 - 2026-10-31 Keep the hidden Claude Code running by default (`idle_shutdown_minutes = 0`). A cold start costs 1-3 s, and users start talking at the press, so the first words were lost after every idle break; 250 MB is the price.
+- 2026-10-31 The hidden session runs stock Claude Code with only standard options (`--safe-mode`, `--tools ""`, `--model haiku`, inline `--settings` for voice hold mode and no auto-submit). `--strict-mcp-config` and `--disable-slash-commands` were dropped as redundant with `--safe-mode` (same 1.1 s start, ~230 MB). Every feature beyond the transcript (history, mute, typing, clipboard) lives in this app; Claude Code keeps no transcript files for the dictation folder.
 
 ## Gotchas
 - 2026-10-25 macOS AppKit crashes if a controller worker updates the tray menu directly. Dispatch tray refresh, visibility, and stop to the main event loop; Linux permits the existing worker updates.
