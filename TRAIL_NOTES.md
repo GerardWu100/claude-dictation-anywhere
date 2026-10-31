@@ -1,4 +1,4 @@
-# Leads and dead ends
+# Trail notes
 
 ## Decisions
 
@@ -9,9 +9,11 @@
 - 2026-10-31 Keep the hidden Claude Code running by default (`idle_shutdown_minutes = 0`). A cold start costs 1-3 s, and users start talking at the press, so the first words were lost after every idle break; 250 MB is the price.
 - 2026-10-31 Hidden-session memory (PSS: resident memory with shared pages split fairly, after 8 s, no children): `--safe-mode --tools ""` 184 MB; plus `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` 168 MB; plus `--strict-mcp-config --disable-slash-commands` 164 MB (kept). Voice still records with all of them. Dropping `--safe-mode` *looks* smaller (138 MB) only because startup hangs on a "Claude in Chrome detected" dialog, and it would run the user's SessionStart hooks and plugins: keep it. Every feature beyond the transcript (history, mute, typing, clipboard) lives in this app; Claude Code keeps no transcript files for the dictation folder.
 
-## Gotchas
-- 2026-10-25 macOS AppKit crashes if a controller worker updates the tray menu directly. Dispatch tray refresh, visibility, and stop to the main event loop; Linux permits the existing worker updates.
+## Assumptions
 
+## Gotchas
+
+- 2026-10-25 macOS AppKit crashes if a controller worker updates the tray menu directly. Dispatch tray refresh, visibility, and stop to the main event loop; Linux permits the existing worker updates.
 - 2026-10-25 A hidden `claude` started from inside another Claude Code session inherits `CLAUDE_*` / `ANTHROPIC_*` variables and shows "Not logged in". Strip them.
 - 2026-10-25 `claude --bare` disables OAuth, so `/voice` is unavailable; use `--safe-mode`. `--safe-mode` plus voice settings passed through `--settings` does record. `--no-session-persistence` only works with `--print`.
 - 2026-10-25 "Not logged in" appears a few seconds after the prompt draws, so a startup check misses it; detect leftover typed spaces after a hold instead.
@@ -28,6 +30,8 @@
 - 2026-10-25 Codex dictation. *disproved*. Codex CLI 0.164 has no dictation code. The ChatGPT/Codex desktop app's global dictation is app-scoped on Linux and cannot paste there. Its `chatgpt.com/backend-api/transcribe` endpoint answers scripts with a 403 bot-check page; do not try to get around it.
 - 2026-10-25 pi (pi-mono) as a lighter Codex front end. *disproved*: no built-in dictation, and its ChatGPT login covers chat models only.
 - 2026-10-25 Shrinking the hidden Claude Code with Bun memory options (`BUN_OPTIONS=--smol`, `BUN_JSC_forceRAMSize`). *disproved*: RSS stayed at about 250 MB and PSS (shared memory split fairly) at about 194 MB. About 141 MB is its own working memory; about 108 MB is program code the kernel can drop and reload under memory pressure. Only quitting the session saves more.
+
+## Open blockers
 
 ## Untried ideas
 
