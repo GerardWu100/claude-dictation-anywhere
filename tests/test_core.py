@@ -110,6 +110,10 @@ class OutputAndShortcutTest(unittest.TestCase):
         self.assertTrue(hotkeys.is_printable_key("KEY_A"))
         self.assertTrue(hotkeys.shortcut_types_text("KEY_LEFTSHIFT+KEY_A"))
         self.assertFalse(hotkeys.shortcut_types_text("KEY_LEFTCTRL+KEY_A"))
+        self.assertFalse(hotkeys.shortcut_types_text("KEY_LEFTSHIFT"))
+        for key in ("KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_TAB", "KEY_ENTER", "KEY_BACKSPACE"):
+            self.assertFalse(hotkeys.is_printable_key(key), key)
+        self.assertTrue(hotkeys.is_printable_key("KEY_KP5"))
         self.assertTrue(hotkeys.is_printable_key("KEY_SPACE"))
         self.assertFalse(hotkeys.is_printable_key("KEY_F8"))
         self.assertFalse(hotkeys.is_printable_key("BTN_SIDE"))
@@ -145,6 +149,20 @@ class CombinationTest(unittest.TestCase):
         single.feed("a", True)
         single.feed("a", False)
         self.assertEqual(events, ["down", "up"])
+
+    def test_hideable_key_is_hidden_only_while_the_rest_is_held(self):
+        combination = hotkeys.Combination(
+            "ctrl+g", unittest.mock.Mock(), unittest.mock.Mock(), hideable={"g"}
+        )
+        self.assertFalse(combination.feed("g", True))  # G alone types G
+        self.assertFalse(combination.feed("g", False))
+        self.assertFalse(combination.feed("ctrl", True))  # modifiers always reach apps
+        self.assertTrue(combination.feed("g", True))
+        self.assertTrue(combination.feed("g", True, repeat=True))
+        self.assertTrue(combination.feed("g", False))
+        self.assertFalse(combination.feed("ctrl", False))
+        combination.on_down.assert_called_once()
+        combination.on_up.assert_called_once()
 
 
 @unittest.skipUnless(settings.IS_MAC, "macOS key names")

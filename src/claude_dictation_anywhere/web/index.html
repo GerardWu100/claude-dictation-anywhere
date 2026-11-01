@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Claude Dictation Anywhere</title>
+<link id="favicon" rel="icon" type="image/svg+xml" href="data:,">
 <style>
   :root {
     --bg: #faf9f5; --card: #ffffff; --text: #1f1e1d; --muted: #6b6a66; --line: #e6e3da;
@@ -21,7 +22,8 @@
          font: 15px/1.5 -apple-system, "Segoe UI", Inter, Cantarell, "Noto Sans", "DejaVu Sans", sans-serif; }
   main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
   header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-  h1 { font-size: 22px; margin: 0; flex: 1; }
+  h1 { font-size: 22px; margin: 0; flex: 1; display: flex; align-items: center; gap: 10px; }
+  h1 svg { width: 30px; height: 30px; flex: none; }
   h2 { font-size: 15px; margin: 0 0 12px; }
   .pill { padding: 4px 12px; border-radius: 999px; font-weight: 600; font-size: 13px;
           background: var(--accent); color: var(--accent-text); }
@@ -56,7 +58,7 @@
 <body>
 <main>
   <header>
-    <h1>Claude Dictation Anywhere</h1>
+    <h1><span id="logo"></span>Claude Dictation Anywhere</h1>
     <span id="state" class="pill">…</span>
   </header>
 
@@ -74,6 +76,10 @@
         <button data-value="hold">Hold to talk</button>
         <button data-value="toggle">Press to start, press to stop</button>
       </span>
+    </div>
+    <div class="row" id="grab-row" hidden>
+      <label for="grab">Stop the shortcut doing its normal job (needed for mouse side buttons, which also mean Back)</label>
+      <input type="checkbox" id="grab" data-setting="grab">
     </div>
   </section>
 
@@ -137,7 +143,30 @@
 const TOKEN = "__CDA_TOKEN__";
 const STATE_LABELS = {idle: "Ready", starting: "Starting Claude Code…", listening: "Listening…",
   transcribing: "Transcribing…", paused: "Paused", capturing: "Press the new shortcut…"};
+// Badge colour per state, as in the tray icon (tray.py STATE_COLOURS).
+const STATE_COLOURS = {idle: "#d97757", starting: "#e6aa28", listening: "#dc2828",
+  transcribing: "#3c78dc", paused: "#8c8c8c", capturing: "#9658d2"};
 let lastStatus = null;
+
+// The tray's microphone on a 64-unit grid: white capsule, cradle, stem and base on a coloured circle.
+function micIcon(colour) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
+    `<circle cx="32" cy="32" r="30" fill="${colour}"/>` +
+    `<rect x="25" y="13" width="14" height="24" rx="7" fill="#fff"/>` +
+    `<g fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round">` +
+    `<path d="M45 33.5A13 11.5 0 0 1 19 33.5M32 45v6M24 51h16"/></g></svg>`;
+}
+
+let shownState = null;
+function showState(state, label) {
+  if (state === shownState) return;  // the page polls every 300 ms; redraw only on change
+  shownState = state;
+  const svg = micIcon(STATE_COLOURS[state] || STATE_COLOURS.idle);
+  document.getElementById("favicon").href = "data:image/svg+xml," + encodeURIComponent(svg);
+  document.getElementById("logo").innerHTML = svg;
+  document.title = state === "idle" ? "Claude Dictation Anywhere" : `${label} · Claude Dictation Anywhere`;
+}
+showState("idle", "");
 
 async function api(method, path, body) {
   const response = await fetch(path, {method, headers: {"X-CDA-Token": TOKEN, "Content-Type": "application/json"},
@@ -152,6 +181,8 @@ function render(status) {
   const pill = document.getElementById("state");
   pill.textContent = STATE_LABELS[status.state] || status.state;
   pill.className = "pill " + status.state;
+  showState(status.state, pill.textContent);
+  document.getElementById("grab-row").hidden = status.platform !== "linux";
   document.getElementById("shortcut").textContent = status.shortcut;
   const notes = {waiting: "Press the key, keys together, or mouse button you want…", timeout: "No press within 15 seconds.",
                  done: "Saved.", rejected: status.capture.message || ""};
@@ -222,7 +253,10 @@ document.getElementById("clear").onclick = async () => {
 async function poll() {
   if (!document.hidden || !lastStatus) {  // always load once; then only while visible
     try { render(await api("GET", "/api/status")); }
-    catch { document.getElementById("state").textContent = "App not running"; }
+    catch {
+      const pill = document.getElementById("state");
+      pill.textContent = "App not running"; pill.className = "pill paused"; showState("paused", pill.textContent);
+    }
   }
   setTimeout(poll, lastStatus && ["listening", "transcribing", "capturing", "starting"].includes(lastStatus.state) ? 300 : 1500);
 }

@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+import time
 import types
 import unittest
 from pathlib import Path
@@ -93,6 +94,37 @@ class LinuxListenerLifecycleTest(unittest.TestCase):
         self.assertTrue(first.closed and second.closed)
         self.assertIsNone(listener._wake_read)
         listener.stop()
+
+    def test_grabbed_combination_replays_modifiers_and_hides_the_other_key(self):
+        self.evdev.ecodes.ecodes.update(KEY_LEFTCTRL=29)
+        twin = Mock()
+        self.evdev.UInput.from_device.return_value = twin
+        on_down, on_up = Mock(), Mock()
+        listener = self.module.TriggerListener(
+            {"shortcut_key": "KEY_LEFTCTRL+KEY_F8", "shortcut_device": "", "grab": True},
+            on_down,
+            on_up,
+        )
+        # (code, value): F8 alone, then Ctrl down, F8 down / repeat / up, Ctrl up.
+        presses = [(66, 1), (66, 0), (29, 1), (66, 1), (66, 2), (66, 0), (29, 0)]
+        device = self.device([29, 66])
+
+        def read():
+            os.read(device.fd, 1)  # drain, so the device reads once
+            return [types.SimpleNamespace(type=1, code=c, value=v) for c, v in presses]
+
+        device.read = read
+        with patch.object(self.module, "_real_devices", return_value=[device]):
+            listener.start()
+            os.write(device.write_fd, b"x")  # make the device look readable once
+            deadline = time.monotonic() + 2
+            while not on_up.called and time.monotonic() < deadline:
+                time.sleep(0.01)
+        listener.stop()
+        replayed = [(e.code, e.value) for (e,), _ in twin.write_event.call_args_list]
+        self.assertEqual(replayed, [(66, 1), (66, 0), (29, 1), (29, 0)])
+        on_down.assert_called_once()
+        on_up.assert_called_once()
 
     def test_no_matching_device_closes_open_devices_and_pipes(self):
         device = self.device([1])

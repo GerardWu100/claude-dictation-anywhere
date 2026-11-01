@@ -102,7 +102,8 @@ A microphone icon appears in the tray or menu bar, and the settings page opens i
 
 All of these are on the settings page:
 
-- **Shortcut:** press **Change…**, then press any key or mouse button, or hold several keys together and let go (for example Control + Option). Function keys, modifiers, combinations, and mouse side or sniper buttons all work. A combination fires once all its keys are down and stops when you let go of any of them. Shortcuts that would type text are refused. On macOS, a letter in a combination also reaches the app you are in, so combinations of modifiers alone are the safest.
+- **Shortcut:** press **Change…**, then press any key or mouse button, or hold several keys together and let go (for example Control + Option). Function keys, modifiers, combinations, and mouse side or sniper buttons all work. A combination fires once all its keys are down and stops when you let go of any of them. Shortcuts that would type text are refused. The G in Ctrl + Alt + G (or Command + Option + G) does not reach the app you are in; G pressed alone still types G.
+- **Stop the shortcut doing its normal job** (Linux): needed for mouse side buttons, which otherwise also mean Back. Modifiers in a combination keep working, so Ctrl + C is unaffected. On macOS this is always on for keys that are not modifiers.
 - **Mode:** *Hold to talk*, or *Press to start, press to stop*.
 - **Text:** type it, paste it, or don't insert it. Optionally also copy it to the clipboard.
 - **Mute the speakers while recording:** on by default. Mutes the default output (your volume level is untouched) and unmutes when you release; if it was already muted, it stays muted.

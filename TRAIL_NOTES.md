@@ -17,9 +17,12 @@
 ## Assumptions
 
 - 2026-10-31 After Input Monitoring is granted, the app retries the shortcut every 5 s while the settings page polls; whether macOS lets a running process create the tap without a restart is unchecked. Check: start without the permission, grant it, watch the warning.
-- 2026-10-31 Key-combination shortcuts on Linux (evdev) were written on macOS and only unit-tested through the shared combination logic. Check on Arch: set Ctrl+Alt with "Change…", dictate.
+- 2026-11-01 Key-combination shortcuts on Linux: the listener starts on all keyboards for Left Ctrl + F20 and the page shows it, and grab replay is unit-tested; a real held combination plus dictation is unchecked. Check on Arch: set Ctrl+Alt with "Change…", dictate; with grab on, check Ctrl+C still copies.
+- 2026-11-01 Linux: a shortcut device that disappears (unplug, suspend) is restarted on the next settings-page poll or within 30 s; whether evdev raises OSError on suspend/resume (rather than going silent) is unchecked. Check: suspend, resume, press the shortcut.
 
 ## Gotchas
+
+- 2026-11-01 Linux key codes KEY_1..KEY_SLASH are not all text keys: Backspace, Tab, Enter, Left Ctrl and Left Shift sit inside that range. Use the explicit ranges in `hotkeys.TEXT_KEY_RANGES`.
 
 - 2026-10-31 macOS: until the microphone prompt for the starting app is answered, Claude Code's native audio check blocks its whole UI at "keep holding…" (no error, Ctrl+G ignored). The app now asks for the microphone at startup and restarts a session frozen this way.
 - 2026-10-31 macOS: inside pystray's AppKit loop the main thread runs no Python, so `signal.signal` handlers (SIGTERM, Ctrl+C) never fire; use `PyObjCTools.MachSignals`.

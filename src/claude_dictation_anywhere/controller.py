@@ -35,8 +35,9 @@ if IS_MAC:
 MAX_RECORDING_S = 115
 IDLE_CHECK_INTERVAL_S = 30
 CAPTURE_TIMEOUT_S = 15
-# How often a shortcut blocked by macOS is retried while the settings page is open,
-# so it starts working soon after you grant Input Monitoring.
+# Least time between retries of a shortcut that could not start: blocked by macOS
+# until you grant Input Monitoring, or its Linux device unplugged. Retries run on
+# each settings-page poll and every IDLE_CHECK_INTERVAL_S otherwise.
 LISTENER_RETRY_INTERVAL_S = 5
 HISTORY_PAGE_SIZE = 100
 
@@ -62,6 +63,7 @@ class DictationController:
         self.listener_error = ""  # kept apart: a successful dictation must not hide it
         self.listener_permission: str | None = None  # macOS permission the shortcut lacks
         self._listener_tried_at = 0.0
+        self._listener_lock = threading.RLock()  # status polls and the worker may both restart it
         self.last_text = ""
         self.capture = {"status": "none"}  # status: none | waiting | done | timeout | rejected
         self.on_change: list = []
@@ -131,6 +133,7 @@ class DictationController:
         """Everything the settings page shows (polled by it every few seconds)."""
         self._retry_blocked_listener()
         return {
+            "platform": "macos" if IS_MAC else "linux",
             "state": self.state,
             "last_error": self.last_error,
             "claude": {"path": self.claude_path, "version": self.claude_version},
@@ -172,30 +175,42 @@ class DictationController:
             )
 
     def _start_listener(self) -> None:
-        if self.listener:
-            self.listener.stop()
-            self.listener = None
-        listener = hotkeys.TriggerListener(self.settings, self._on_down, self._on_up)
-        try:
-            listener.start()
-            self.listener = listener
-            self.listener_error = ""
-            self.listener_permission = None
-        except (ValueError, OSError) as error:
-            self.listener_error = f"Shortcut not active: {error}"
-            self.listener_permission = getattr(error, "permission", None)
-            log.warning(self.listener_error)
-        self._listener_tried_at = time.monotonic()
+        with self._listener_lock:
+            if self.listener:
+                self.listener.stop()
+                self.listener = None
+            listener = hotkeys.TriggerListener(self.settings, self._on_down, self._on_up)
+            try:
+                listener.start()
+                self.listener = listener
+                self.listener_error = ""
+                self.listener_permission = None
+            except (ValueError, OSError) as error:
+                self.listener_error = f"Shortcut not active: {error}"
+                self.listener_permission = getattr(error, "permission", None)
+                log.warning(self.listener_error)
+            self._listener_tried_at = time.monotonic()
+
+    def _listener_needs_restart(self) -> bool:
+        if IS_MAC:
+            # Only a missing permission is worth retrying, once it has been granted.
+            return bool(self.listener_permission) and mac_events.can_listen()
+        # Linux: the device was missing at start, or went away (unplugged, suspend).
+        return bool(self.listener_error) or bool(self.listener and not self.listener.is_alive())
 
     def _retry_blocked_listener(self) -> None:
-        """Start the shortcut once macOS allows it, without restarting the app."""
-        if (
-            self.listener_permission
-            and self.state != "capturing"
-            and time.monotonic() - self._listener_tried_at > LISTENER_RETRY_INTERVAL_S
-            and mac_events.can_listen()
-        ):
-            self._start_listener()
+        """Restart the shortcut once it can work again, without restarting the app."""
+        if not self._listener_lock.acquire(blocking=False):
+            return  # another thread is already (re)starting it
+        try:
+            if (
+                self.state != "capturing"
+                and time.monotonic() - self._listener_tried_at > LISTENER_RETRY_INTERVAL_S
+                and self._listener_needs_restart()
+            ):
+                self._start_listener()
+        finally:
+            self._listener_lock.release()
 
     def _capture(self) -> None:
         if self.listener:
@@ -207,8 +222,9 @@ class DictationController:
         elif hotkeys.shortcut_types_text(found[0]):
             self.capture = {
                 "status": "rejected",
-                "message": "That types text. Add a modifier such as Ctrl or Option, "
-                "or pick a function key or a mouse button.",
+                "message": "That types text. Add a modifier such as "
+                + ("Control or Option" if IS_MAC else "Ctrl or Alt")
+                + ", or pick a function key or a mouse button.",
             }
         else:
             key, device = found
@@ -249,6 +265,7 @@ class DictationController:
                 event = self.events.get(timeout=IDLE_CHECK_INTERVAL_S)
             except queue.Empty:
                 self._stop_if_idle()
+                self._retry_blocked_listener()  # also while the settings page is closed
                 continue
             try:
                 if event == "prewarm":
