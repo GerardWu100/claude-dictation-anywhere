@@ -301,7 +301,7 @@ class DictationController:
                     else []
                 ),
                 *(
-                    [{"text": listener.warning, "permission": "Accessibility"}]
+                    [{"text": listener.warning, "permission": "Accessibility" if IS_MAC else None}]
                     if listener and listener.warning
                     else []
                 ),
@@ -384,7 +384,8 @@ class DictationController:
             except (ValueError, OSError) as error:
                 self._note_listener_failure(error)
             except Exception as error:  # evdev's UInputError derives from Exception only
-                log.exception("the shortcut listener could not start")
+                if f"Shortcut not active: {error}" != self._last_listener_log:  # retried often
+                    log.exception("the shortcut listener could not start")
                 self._note_listener_failure(error)
             self._listener_tried_at = time.monotonic()
 
@@ -571,6 +572,7 @@ class DictationController:
             self._dictate_once(event)
         elif event.kind == PREWARM:
             self._ensure_session(self.settings)
+            self.session.check_logged_in()
             if self.last_error != NOT_FOUND_HELP:
                 self.last_error = ""
         if not self._stopping.is_set():
@@ -729,8 +731,12 @@ class DictationController:
 
     def _hold_space(self, session, press: Event, toggle: bool, started: float) -> None:
         # Hold mode stops on this press's release; toggle mode ignores releases and
-        # stops on the next press. A cancel is seen within one key repeat.
+        # stops on the next press. A cancel is seen within one key repeat, and so is a
+        # voice failure, because another Space would make Claude Code connect again.
         while time.monotonic() - started < MAX_RECORDING_S and self._cancel_reason is None:
+            if session.voice_failed():
+                log.info("voice reported a failure; no more Spaces for this press")
+                return
             session.press_space()
             try:
                 event = self.events.get(timeout=KEY_REPEAT_INTERVAL_S)

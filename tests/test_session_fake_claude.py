@@ -22,6 +22,7 @@ from claude_dictation_anywhere.claude_session import (
 
 FAKE_CLAUDE = Path(__file__).with_name("fake_claude.py")
 HOLD_SECONDS = 0.25
+MAX_SPACES_TO_FILL_A_PTY = 1_000_000  # Linux holds 20,480 bytes, macOS far fewer
 
 
 class FakeClaudeCase(unittest.TestCase):
@@ -73,6 +74,13 @@ class FakeClaudeCase(unittest.TestCase):
 
     def keys(self) -> bytes:
         return self.keylog.read_bytes()
+
+    def fill_pty(self, session) -> None:
+        """Press Space until the pty has no room; how much it holds differs per system."""
+        for _ in range(MAX_SPACES_TO_FILL_A_PTY):
+            if not session._write(claude_session.SPACE):
+                return
+        self.fail("the pty never filled up")
 
 
 class NormalDictationTest(FakeClaudeCase):
@@ -179,8 +187,7 @@ class FailureTest(FakeClaudeCase):
         with patch.object(claude_session, "WRITE_TIMEOUT_S", 0.05):
             session = self.started(stop_reading=True)
             session.begin_hold()
-            for _ in range(20_000):
-                session.press_space()  # fills the pty
+            self.fill_pty(session)
             with self.assertRaisesRegex(DictationError, "stopped accepting keys"):
                 session._write_key(claude_session.CTRL_G)
         self.assertFalse(session.running)
@@ -219,10 +226,81 @@ class FailureTest(FakeClaudeCase):
         with patch.object(claude_session, "WRITE_TIMEOUT_S", 0.05):
             session = self.started(stop_reading=True)
             session.begin_hold()
-            for _ in range(20_000):
-                session.press_space()
+            self.fill_pty(session)
             session.cancel_recording()
         self.assertFalse(session.running)
+
+    def connects(self) -> int:
+        path = Path(f"{self.keylog}.connects")
+        return len(path.read_text().splitlines()) if path.exists() else 0
+
+    def hold_until_voice_fails(self, session, seconds=1.0):
+        """What the controller does: Spaces every 30 ms, until a release or a voice failure."""
+        session.begin_hold()
+        end = time.monotonic() + seconds
+        while time.monotonic() < end and not session.voice_failed():
+            session.press_space()
+            time.sleep(claude_session.KEY_REPEAT_INTERVAL_S)
+
+    def test_a_refused_connection_is_not_retried_while_the_key_stays_held(self):
+        session = self.started(voice_refused="Voice connection failed. Check your network")
+        self.hold(session)  # the control: Spaces that ignore the failure do connect again
+        repeated = self.connects()
+        self.assertGreater(repeated, 1)
+        session.stop()
+        Path(f"{self.keylog}.connects").unlink()
+        session = self.started(voice_refused="Voice connection failed. Check your network")
+        self.hold_until_voice_fails(session)
+        self.assertTrue(session.voice_failed())
+        time.sleep(0.5)  # no Space is pressed now, so no second attempt can follow
+        self.assertEqual(self.connects(), 1)
+        with self.assertRaisesRegex(DictationError, "network or VPN"):
+            session.collect_transcript()
+        self.assertTrue(session.running)  # still signed in: this session is still good
+
+    def test_expired_login_says_how_to_sign_in_and_replaces_the_session(self):
+        session = self.started(voice_refused="Voice stream error", logged_out=True)
+        self.hold_until_voice_fails(session)
+        with self.assertRaisesRegex(DictationError, "/login"):
+            session.collect_transcript()
+        self.assertEqual(self.connects(), 1)
+        self.assertFalse(session.running)
+
+    def test_needs_claude_ai_notice_says_how_to_sign_in(self):
+        session = self.started(voice_refused="Voice mode requires a Claude.ai account")
+        self.hold_until_voice_fails(session)
+        with self.assertRaisesRegex(DictationError, "/login"):
+            session.collect_transcript()
+        self.assertFalse(session.running)
+
+    def test_a_notice_during_a_real_recording_does_not_cut_it_short(self):
+        session = self.started(transcript="words")
+        self.hold(session)  # still listening: the release gap has not passed
+        session._failures = ["No speech detected"]
+        self.assertFalse(session.voice_failed())
+        time.sleep(0.6)  # the fake sees the release and finishes
+        self.assertTrue(session.voice_failed())
+
+    def test_check_logged_in_stops_a_signed_out_session_before_any_press(self):
+        session = self.started(logged_out=True)
+        with self.assertRaisesRegex(DictationError, "/login"):
+            session.check_logged_in()
+        self.assertFalse(session.running)
+        self.assertEqual(self.keys(), b"")
+
+    def test_check_logged_in_passes_when_signed_in(self):
+        session = self.started()
+        session.check_logged_in()
+        self.assertTrue(session.running)
+
+    def test_auth_status_problems_are_not_reported_as_a_lost_login(self):
+        broken = Path(self.tmp.name) / "broken"
+        for script in ("echo not json", "exit 1", "sleep 30"):
+            with self.subTest(script), patch.object(claude_session, "AUTH_STATUS_TIMEOUT_S", 0.2):
+                broken.write_text(f"#!/bin/sh\n{script}\n")
+                broken.chmod(0o700)
+                self.assertFalse(claude_session.claude_says_logged_out(str(broken)))
+        self.assertFalse(claude_session.claude_says_logged_out("/no/such/program"))
 
     def test_freeze_at_microphone_is_reported_and_replaced(self):
         with patch.object(claude_session, "WARMUP_FREEZE_TIMEOUT_S", 0.2):
@@ -235,7 +313,7 @@ class FailureTest(FakeClaudeCase):
         session = self.started(stop_reading=True)
         session.begin_hold()
         started = time.monotonic()
-        for _ in range(20_000):  # far more than any pty buffer holds
+        for _ in range(50_000):  # more than a pty holds on Linux or macOS
             session.press_space()
         self.assertLess(time.monotonic() - started, 5)
 

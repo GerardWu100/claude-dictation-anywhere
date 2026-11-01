@@ -134,10 +134,11 @@ def run_test(seconds: float) -> None:
     print(f"Starting hidden Claude Code ({claude_path})...", flush=True)
     try:
         session.start()
+        session.check_logged_in()
         print(f"Speak now for {seconds:g} seconds.", flush=True)
         session.begin_hold()
         end = time.monotonic() + seconds
-        while time.monotonic() < end:
+        while time.monotonic() < end and not session.voice_failed():
             session.press_space()
             time.sleep(KEY_REPEAT_INTERVAL_S)
         started = time.monotonic()

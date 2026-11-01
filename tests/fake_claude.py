@@ -15,6 +15,9 @@ Started in a real pty by ClaudeVoiceSession. Reads FAKE_CLAUDE_OPTIONS (JSON):
     stop_reading     never read the keyboard, so the pty fills up
     ignore_term      survive SIGTERM
     spawn_helper     start a helper process in the same group; its pid goes to keylog + ".helper"
+    voice_refused    every hold shows this notice at once instead of recording; each one
+                     appends a line to keylog + ".connects", like a connection attempt
+    logged_out       `auth status` reports that nobody is signed in
 
 Every key received is appended to FAKE_CLAUDE_KEYLOG, so a test can prove what was
 never pressed (Enter above all).
@@ -87,6 +90,9 @@ def run_editor(prompt: str) -> str:
 
 
 def main() -> None:
+    if sys.argv[1:3] == ["auth", "status"]:
+        print(json.dumps({"loggedIn": not options.get("logged_out")}))
+        sys.exit(1 if options.get("logged_out") else 0)
     if "--safe-mode" not in sys.argv:
         print("error: required flags missing")
         sys.exit(2)
@@ -134,6 +140,12 @@ def main() -> None:
                     spaces += 1
                     last_space = now
                     if phase is None and spaces >= HOLD_DETECT_SPACES:
+                        if options.get("voice_refused"):
+                            spaces = 0
+                            with open(os.environ["FAKE_CLAUDE_KEYLOG"] + ".connects", "a") as file:
+                                file.write("connect\n")
+                            draw_prompt(prompt, notice=options["voice_refused"])
+                            continue
                         phase = "warmup"
                         draw_prompt(prompt, "· keep holding…")
                     elif phase == "warmup" and spaces >= HOLD_DETECT_SPACES + 2:

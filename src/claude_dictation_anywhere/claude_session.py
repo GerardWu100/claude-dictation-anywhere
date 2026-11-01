@@ -71,6 +71,7 @@ CANCEL_TIMEOUT_S = 2  # Esc -> voice is idle again
 TRUST_KEY_TIMEOUT_S = 1  # arrow key -> the dialog shows it moved
 READY_GRACE_S = 0.3  # press -> the prompt box, if a redraw is under way
 WRITE_TIMEOUT_S = 1  # a control key waits this long for room in a full pty
+AUTH_STATUS_TIMEOUT_S = 5
 # The footer can change from "listening…" to "Voice: processing…" across two reads;
 # only this long without either counts as finished.
 FINAL_SETTLE_S = 0.15
@@ -106,18 +107,20 @@ CLAUDE_CANDIDATE_PATHS = (
 )
 
 LOGGED_OUT_MARKER = "Not logged in"
+NEEDS_CLAUDE_AI_MARKER = "Voice mode requires"
+# Notices that also appear when a sign-in has expired; `claude auth status` tells them apart.
+VOICE_SERVICE_MARKERS = ("Voice connection failed", "Voice stream error")
 # Messages Claude Code shows when dictation fails (from its voice docs).
 VOICE_ERROR_MARKERS = (
     LOGGED_OUT_MARKER,
-    "Voice mode requires",
+    NEEDS_CLAUDE_AI_MARKER,
     "Voice mode is disabled",
     "Voice mode could not",
     "Microphone access is denied",
     "Voice input is failing",
     "No audio detected",
     "No speech detected",
-    "Voice connection failed",
-    "Voice stream error",
+    *VOICE_SERVICE_MARKERS,
     "Dictation error",
 )
 UNKNOWN_OPTION_MARKER = "unknown option"
@@ -127,6 +130,10 @@ MAX_WARMUP_SPACES = 5
 LOGGED_OUT_HELP = (
     "Claude Code is not logged in. Run `claude` in a terminal, type /login, "
     "and sign in with your Claude.ai account."
+)
+VOICE_SERVICE_HELP = (
+    "Claude Code could not reach its voice service. Check your network or VPN, then press "
+    "again. If it keeps failing, run `claude` in a terminal and type /login."
 )
 FROZEN_AT_MICROPHONE_HELP = (
     "Claude Code froze before recording, usually while waiting for microphone permission. "
@@ -261,19 +268,48 @@ def claude_version(claude_path: str) -> str:
     return match.group(0) if match else ""
 
 
-def build_claude_env(base_env: dict[str, str], hook: Path, handoff_dir: Path) -> dict[str, str]:
-    """Environment for the hidden session.
+def without_parent_session(base_env: dict[str, str]) -> dict[str, str]:
+    """``base_env`` without ``CLAUDE*`` / ``ANTHROPIC*``, except ``KEPT_CLAUDE_VARIABLES``.
 
-    ``CLAUDE*`` / ``ANTHROPIC*`` variables are dropped: started from inside another
-    Claude Code session, those point the child at the parent's login or proxy, and
-    an ``ANTHROPIC_API_KEY`` turns dictation off entirely (it needs a Claude.ai
-    login). ``KEPT_CLAUDE_VARIABLES`` are the exception.
+    Started from inside another Claude Code session, those point the child at the
+    parent's login or proxy, and an ``ANTHROPIC_API_KEY`` turns dictation off
+    entirely (it needs a Claude.ai login).
     """
-    env = {
+    return {
         k: v
         for k, v in base_env.items()
         if k in KEPT_CLAUDE_VARIABLES or not k.startswith(("CLAUDE", "ANTHROPIC"))
     }
+
+
+def claude_says_logged_out(claude_path: str) -> bool:
+    """True only if Claude Code's own `auth status` reports that nobody is signed in.
+
+    Credentials stay inside Claude Code; this reads only its JSON answer. Any other
+    answer is False, so a tool problem is never reported as a lost login.
+
+    Call this only after the session flags were accepted: a version too old to know
+    `auth` would take the words as a prompt.
+    """
+    try:
+        result = subprocess.run(
+            [claude_path, "auth", "status"],
+            env=without_parent_session(dict(os.environ)),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=AUTH_STATUS_TIMEOUT_S,
+            check=False,
+        )
+        status = json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return isinstance(status, dict) and status.get("loggedIn") is False
+
+
+def build_claude_env(base_env: dict[str, str], hook: Path, handoff_dir: Path) -> dict[str, str]:
+    """Environment for the hidden session (see ``without_parent_session``)."""
+    env = without_parent_session(base_env)
     env.update(
         TERM="xterm-256color",
         EDITOR=str(hook),
@@ -562,6 +598,29 @@ class ClaudeVoiceSession:
             status = status_text(self.rows)
             self._ignored_failures = {m for m in VOICE_ERROR_MARKERS if shows(status, m)}
 
+    def check_logged_in(self) -> None:
+        """Say so now if nobody is signed in, instead of at the first press.
+
+        Raises
+        ------
+        DictationError
+            With the sign-in steps. The session is stopped: a running one keeps its
+            old login, while a fresh one sees a new /login.
+        """
+        if claude_says_logged_out(self.claude_path):
+            self.stop()
+            raise DictationError(LOGGED_OUT_HELP)
+
+    def voice_failed(self) -> bool:
+        """True once this hold showed an error notice and voice is not recording.
+
+        Stop pressing Space then: each further Space would make Claude Code try to
+        connect again, which is an automatic retry around a refusal.
+        """
+        with self._observe_lock:
+            failed = bool(self._failures)
+        return failed and voice_phase(self.rows) != LISTENING
+
     def press_space(self) -> None:
         """Send one Space; called every ``KEY_REPEAT_INTERVAL_S`` while recording.
 
@@ -621,19 +680,26 @@ class ClaudeVoiceSession:
                 raise PartialTranscript(UNFINISHED_HELP, text)
             raise DictationError(UNFINISHED_HELP)
         with self._observe_lock:
-            failure = next(iter(self._failures), None)
-        if not text and raw_text.count(" ") > MAX_WARMUP_SPACES:
-            raise DictationError(NO_VOICE_HELP)
-        if failure:
-            message = (
-                LOGGED_OUT_HELP
-                if failure == LOGGED_OUT_MARKER
-                else f"Claude Code reported '{failure}'."
-            )
+            failures = list(self._failures)
+        never_recorded = not text and raw_text.count(" ") > MAX_WARMUP_SPACES
+        if failures or never_recorded:
+            message = self._failure_message(failures)
             if text:  # the box is empty by now, so this is the only copy
                 raise PartialTranscript(message, text)
             raise DictationError(message)
         return text
+
+    def _failure_message(self, failures: list[str]) -> str:
+        """Plain-language reason for a failed recording, from the notices it showed."""
+        needs_login = LOGGED_OUT_MARKER in failures or NEEDS_CLAUDE_AI_MARKER in failures
+        service_failure = next((f for f in failures if f in VOICE_SERVICE_MARKERS), None)
+        may_be_login = service_failure or not failures
+        if needs_login or (may_be_login and claude_says_logged_out(self.claude_path)):
+            self.stop()  # a running session keeps its old login; a fresh one sees a new /login
+            return LOGGED_OUT_HELP
+        if service_failure:
+            return VOICE_SERVICE_HELP
+        return f"Claude Code reported '{failures[0]}'." if failures else NO_VOICE_HELP
 
     def _wait_for_final_text(self) -> bool:
         """Wait for the footer to say the transcript is final; False if it never does.

@@ -34,6 +34,8 @@ class FakeSession:
     collect_gate: threading.Event | None = None
     collect_error: Exception | None = None
     space_error: Exception | None = None
+    voice_failure = False
+    login_error: Exception | None = None
 
     def __init__(self, claude_path, language):
         self.claude_path, self.language = claude_path, language
@@ -63,6 +65,13 @@ class FakeSession:
 
     def begin_hold(self):
         pass
+
+    def voice_failed(self):
+        return FakeSession.voice_failure
+
+    def check_logged_in(self):
+        if FakeSession.login_error is not None:
+            raise FakeSession.login_error
 
     def press_space(self):
         if FakeSession.space_error is not None:
@@ -123,7 +132,8 @@ class ControllerCase(unittest.TestCase):
         FakeSession.instances = []
         FakeSession.transcript = "hello"
         FakeSession.start_gate = FakeSession.collect_gate = None
-        FakeSession.collect_error = FakeSession.space_error = None
+        FakeSession.collect_error = FakeSession.space_error = FakeSession.login_error = None
+        FakeSession.voice_failure = False
         FakeListener.instances = []
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -372,6 +382,32 @@ class InputLostTest(ControllerCase):
         self.assertTrue(wait_until(lambda: self.session.collected == 1))
         self.wait_idle()
         self.deliver.assert_not_called()
+
+
+class VoiceFailureTest(ControllerCase):
+    def test_a_voice_failure_ends_the_spaces_while_the_key_stays_held(self):
+        FakeSession.collect_error = DictationError("Claude Code could not reach its voice service.")
+        self.press()
+        self.wait_recording()
+        FakeSession.voice_failure = True
+        self.assertTrue(wait_until(self.spaces_stop))
+        self.assertTrue(wait_until(lambda: "voice service" in self.controller.last_error))
+        self.wait_idle()
+        self.deliver.assert_not_called()
+        self.release()  # the release belongs to a press that is over
+
+        FakeSession.voice_failure = False
+        self.wait_idle()
+        self.press()
+        self.wait_recording()
+        self.release()
+        self.assertTrue(wait_until(lambda: self.deliver.called))
+
+    def test_starting_signed_out_says_so_without_any_press(self):
+        FakeSession.login_error = DictationError("run claude and type /login")
+        self.controller.events.put(controller_module.Event(controller_module.PREWARM))
+        self.assertTrue(wait_until(lambda: "/login" in self.controller.last_error))
+        self.assertEqual(self.session.spaces, 0)
 
 
 class ToggleLossTest(ControllerCase):
@@ -908,6 +944,11 @@ class SettingsTransactionTest(ControllerCase):
 
 
 class StatusTest(ControllerCase):
+    def test_listener_warning_names_a_permission_only_on_macos(self):
+        with patch.object(FakeListener, "warning", "G also reaches the app you are in."):
+            warning = self.controller.status()["warnings"][0]
+        self.assertEqual(warning["permission"], "Accessibility" if settings.IS_MAC else None)
+
     def test_status_does_not_reap_or_read_slowly(self):
         self.dictate()
         with patch.object(self.session, "is_alive", side_effect=AssertionError("reaped")):
