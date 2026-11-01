@@ -23,6 +23,7 @@ device still unmutes at release.
 import ctypes
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -59,8 +60,14 @@ class _AudioPropertyAddress(ctypes.Structure):
 
 
 def _run(args: list[str]) -> str:
+    # English output whatever the desktop language: pactl says "Stumm: ja" in German.
     return subprocess.run(
-        args, capture_output=True, text=True, check=True, timeout=COMMAND_TIMEOUT_S
+        args,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=COMMAND_TIMEOUT_S,
+        env={**os.environ, "LC_ALL": "C"},
     ).stdout
 
 

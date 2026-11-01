@@ -268,7 +268,10 @@ else:
         devices = []
         with ExitStack() as opened:
             for path in evdev.list_devices():
-                device = evdev.InputDevice(path)
+                try:
+                    device = evdev.InputDevice(path)
+                except OSError:  # unplugged since it was listed
+                    continue
                 if device.name.startswith(IGNORED_DEVICE_PREFIXES):
                     device.close()
                 else:
@@ -317,8 +320,6 @@ else:
         replayed, so Ctrl+C keeps working; the other keys are dropped only while
         the rest of the combination is held.
         """
-
-        warning = ""
 
         def __init__(self, settings: dict, on_down, on_up, on_lost):
             self.key = settings["shortcut_key"]
@@ -398,6 +399,21 @@ else:
                 self._thread.join(timeout=LISTENER_STOP_TIMEOUT_S)
             else:
                 self._close_pipes()
+
+        @property
+        def warning(self) -> str:
+            """Why a combination's key or a mouse button still reaches other apps, if it does.
+
+            A lone function key is left out: pressing a key with no job there needs no warning.
+            """
+            keys = shortcut_keys(self.key)
+            shown = [k for k in keys if k not in MODIFIER_KEYS]
+            if self.grab or not shown or (len(keys) == 1 and not keys[0].startswith("BTN_")):
+                return ""
+            return (
+                f"{describe_key(shown[0])} also reaches the app you are in. Turn on "
+                "“Stop the shortcut doing its normal job” to hide it."
+            )
 
         def is_alive(self) -> bool:
             """False once a device it reads from went away (unplugged, suspend)."""
@@ -512,7 +528,12 @@ else:
                 if cancel is not None and cancel.is_set():
                     return None
                 for selected, _ in selector.select(timeout=min(remaining, CAPTURE_POLL_S)):
-                    for event in selected.fileobj.read():
+                    try:
+                        events = list(selected.fileobj.read())
+                    except OSError:  # one device unplugged; the others can still give the key
+                        selector.unregister(selected.fileobj)
+                        continue
+                    for event in events:
                         if event.type != ecodes.EV_KEY or event.code in skip:
                             continue
                         name = _code_name(event.code)

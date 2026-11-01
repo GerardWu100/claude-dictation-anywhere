@@ -27,6 +27,7 @@ import json
 import logging
 import secrets
 import subprocess
+import sys
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -68,6 +69,13 @@ def open_in_browser(url: str) -> None:
     )
 
 
+class SettingsServer(ThreadingHTTPServer):
+    """A browser closing a tab mid-reply is normal: one log line, not a traceback on stderr."""
+
+    def handle_error(self, request, client_address):
+        log.info("a settings page request ended early: %s", sys.exc_info()[0].__name__)
+
+
 class SettingsPage:
     def __init__(self, controller):
         self.controller = controller
@@ -75,9 +83,9 @@ class SettingsPage:
         page = resources.files(__package__).joinpath("web/index.html").read_text(encoding="utf-8")
         self.page = page.replace("__CDA_TOKEN__", self.token).encode()
         try:
-            self.server = ThreadingHTTPServer((HOST, PREFERRED_PORT), self._handler())
+            self.server = SettingsServer((HOST, PREFERRED_PORT), self._handler())
         except OSError:
-            self.server = ThreadingHTTPServer((HOST, 0), self._handler())
+            self.server = SettingsServer((HOST, 0), self._handler())
         self._thread: threading.Thread | None = None
         self._closed = False
 

@@ -41,7 +41,21 @@ class FakeDevice:
 class LinuxListenerLifecycleTest(unittest.TestCase):
     def setUp(self):
         ecodes = types.SimpleNamespace(
-            EV_KEY=1, EV_SYN=0, SYN_REPORT=0, SYN_DROPPED=3, ecodes={"KEY_F8": 66}
+            EV_KEY=1,
+            EV_SYN=0,
+            SYN_REPORT=0,
+            SYN_DROPPED=3,
+            BTN_LEFT=272,
+            BTN_RIGHT=273,
+            BTN_TOUCH=330,
+            BTN_TOOL_FINGER=325,
+            BTN_TOOL_DOUBLETAP=333,
+            BTN_TOOL_TRIPLETAP=334,
+            BTN_TOOL_QUADTAP=335,
+            BTN_TOOL_QUINTTAP=328,
+            BTN={},
+            KEY={66: "KEY_F8"},
+            ecodes={"KEY_F8": 66},
         )
         self.evdev = types.SimpleNamespace(ecodes=ecodes, UInput=Mock())
         module_path = Path(settings.__file__).with_name("hotkeys.py")
@@ -238,6 +252,42 @@ class LinuxListenerLifecycleTest(unittest.TestCase):
         self.assertEqual(replayed, [(66, 1), (66, 0), (29, 1), (29, 0)])
         on_down.assert_called_once()
         on_up.assert_called_once()
+
+    def test_a_device_unplugged_while_listing_is_skipped(self):
+        good = self.device([66])
+        self.evdev.list_devices = Mock(return_value=["gone", "good"])
+        self.evdev.InputDevice = Mock(side_effect=[FileNotFoundError("gone"), good])
+        self.assertEqual(self.module._real_devices(), [good])
+
+    def test_capture_goes_on_when_another_device_is_unplugged(self):
+        gone, good = self.device([66]), self.device([66])
+        gone.read = Mock(side_effect=OSError(19, "No such device"))
+        self.feed(good, [(1, 66, 1), (1, 66, 0)])
+        os.write(gone.write_fd, b"x")
+        with patch.object(self.module, "_real_devices", return_value=[gone, good]):
+            found = self.module.capture_next_input(2)
+        self.assertEqual(found, ("KEY_F8", "test keyboard"))
+
+    def test_warning_says_when_a_key_still_reaches_other_apps(self):
+        cases = {
+            ("KEY_F8", False): "",  # a lone function key usually has no job to hide
+            ("KEY_LEFTCTRL+KEY_LEFTALT", False): "",  # modifiers are never hidden
+            ("KEY_LEFTCTRL+KEY_G", False): "G also reaches",
+            ("BTN_SIDE", False): "back button also reaches",
+            ("KEY_LEFTCTRL+KEY_G", True): "",
+            ("BTN_SIDE", True): "",
+        }
+        for (shortcut, grab), expected in cases.items():
+            listener = self.module.TriggerListener(
+                {"shortcut_key": shortcut, "shortcut_device": "", "grab": grab},
+                Mock(),
+                Mock(),
+                Mock(),
+            )
+            self.addCleanup(listener.stop)
+            with self.subTest(shortcut=shortcut, grab=grab):
+                self.assertIn(expected, listener.warning)
+                self.assertEqual(bool(expected), bool(listener.warning))
 
     def test_no_matching_device_closes_open_devices_and_pipes(self):
         device = self.device([1])
