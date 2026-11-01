@@ -88,7 +88,7 @@ On Linux, add it to your desktop's app search (GNOME, KDE) once:
 claude-dictation-anywhere --install-launcher
 ```
 
-After that, start it from the app search like any other app. Opening it again while it runs opens its settings page. `--uninstall-launcher` removes it.
+After that, start it from the app search like any other app. To get a newer version, run `uv tool upgrade claude-dictation-anywhere` and restart the app. Opening it again while it runs opens its settings page. `--uninstall-launcher` removes it.
 
 A microphone icon appears in the tray or menu bar, and the settings page opens in your browser the first time. Click the icon → **Settings and history…** to open it again.
 

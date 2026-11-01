@@ -36,6 +36,7 @@
 
 ## Gotchas
 
+- 2026-11-01 The desktop launcher runs the `uv tool` copy, not this checkout, so a push changes nothing there until `uv tool upgrade claude-dictation-anywhere`. Check which code ran from the log's words, or from `direct_url.json` in that copy's `dist-info`.
 - 2026-11-01 Linux: a signed-out Claude Code still reaches an ordinary prompt box, showing "API Usage Billing" where it showed the plan. After an expired sign-in the first hold logged "OAuth refresh failed ... 400" and "voice_stream ... HTTP 401", the screen said only "Voice connection failed. Check your network", and Claude Code then cleared its own login. `claude --debug-file <path>` shows this; it holds no audio, but read it with care.
 - 2026-11-01 Linux pty: holds 20,480 bytes of unread input, so 115 s of Spaces (about 3,800) never fills it, unlike macOS. Tests that need a full pty must write until it refuses.
 - 2026-11-01 Linux uinput: closing a virtual device right after writing to it loses what a reader had not read, because the reader gets ENODEV first. The kernel releases that device's held keys itself, so nothing stays held, but the release cannot be observed in a test.
