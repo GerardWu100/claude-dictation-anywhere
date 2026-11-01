@@ -163,6 +163,8 @@ class LauncherTest(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmp,
             unittest.mock.patch.dict(os.environ, {"XDG_DATA_HOME": tmp}),
             unittest.mock.patch.object(launcher, "app_command", return_value="/x/cda"),
+            # Without this, a run on a Mac replaces the real app in ~/Applications.
+            unittest.mock.patch.object(launcher, "IS_MAC", False),
         ):
             launcher.install_launcher()
             entry = launcher.desktop_file_path().read_text()

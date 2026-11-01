@@ -89,7 +89,7 @@ claude-dictation-anywhere --install-launcher
 ```
 
 - **Linux (GNOME, KDE):** start it from the app search. Opening it again while it runs opens its settings page.
-- **macOS:** this builds `~/Applications/Claude Dictation Anywhere.app`, so Spotlight finds it. It has its own permissions, separate from your terminal's, so allow them once more. *The macOS app is new and has not yet been checked on a real Mac; starting from a terminal still works.*
+- **macOS:** this builds `~/Applications/Claude Dictation Anywhere.app`, so Spotlight finds it. It has its own permissions, separate from your terminal's, so allow them once more. Opening it again while it runs does nothing; use the menu bar icon. *The macOS app is built and started on a real Mac, but dictation through it has not been checked yet; starting from a terminal still works.*
 
 `--uninstall-launcher` removes it. To get a newer version, run `uv tool upgrade claude-dictation-anywhere` and restart the app.
 

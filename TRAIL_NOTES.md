@@ -28,7 +28,7 @@
 
 ## Assumptions
 
-- 2026-11-01 The macOS app was built and tested only with stand-ins for `osacompile` and `codesign` on Linux. Unchecked on a real Mac: the AppleScript compiles; the permission prompts name this app; the microphone works through it; no Dock icon; the custom icon shows; a long blocking `do shell script` has no timeout; permissions survive `uv tool upgrade`. Check: `--install-launcher`, open it from Spotlight, dictate, quit from the menu bar.
+- 2026-11-01 The macOS app is built and started on a real Mac only with a stand-in program, not the real one. Unchecked: the permission prompts name this app; the microphone works through it; the custom icon looks right; quitting from the menu bar exits 0; permissions survive `uv tool upgrade`; logging out is not held up, because the applet is busy and cannot answer a quit request. Check: `--install-launcher`, open it from Spotlight, dictate, quit from the menu bar, log out with it running.
 - 2026-11-01 `Voice: processing…` always shows between release and final text on later versions (one recording seen on 2.1.309). Check after a Claude Code update: `--test 5`, then look for "finished without seeing the processing state" in the log.
 - 2026-11-01 Linux hardware not yet tried with this code; `tests/test_live_linux.py` passes with virtual devices, and the user dictated with the real F8 on 2.1.314. Check on Arch: unplug the receiver mid-hold, a real side button with grab on in a browser, Ctrl+C with grab on.
 - 2026-11-01 X11 is unchecked: this machine runs GNOME on Wayland and has no xclip. Check on an X11 session: copy, paste, and type.
@@ -38,6 +38,7 @@
 
 ## Gotchas
 
+- 2026-11-01 macOS app, measured with a stand-in program: opening it again while it runs does nothing, because macOS only reactivates the busy applet, so the settings page does not open as it does on Linux. Force-quitting the applet leaves the program running without it. A long run has no timeout (135 s, past AppleScript's 120 s default). No Dock icon (`lsappinfo` type UIElement).
 - 2026-11-01 The desktop launcher runs the `uv tool` copy, not this checkout, so a push changes nothing there until `uv tool upgrade claude-dictation-anywhere`. Check which code ran from the log's words, or from `direct_url.json` in that copy's `dist-info`.
 - 2026-11-01 Linux: a signed-out Claude Code still reaches an ordinary prompt box, showing "API Usage Billing" where it showed the plan. After an expired sign-in the first hold logged "OAuth refresh failed ... 400" and "voice_stream ... HTTP 401", the screen said only "Voice connection failed. Check your network", and Claude Code then cleared its own login. `claude --debug-file <path>` shows this; it holds no audio, but read it with care.
 - 2026-11-01 Linux pty: holds 20,480 bytes of unread input, so 115 s of Spaces (about 3,800) never fills it, unlike macOS. Tests that need a full pty must write until it refuses.
