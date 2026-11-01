@@ -57,7 +57,8 @@ DEFAULT_SETTINGS = {
     # The next press then waits 1-3 s for it to restart, and words spoken meanwhile
     # are lost. 0 = keep it running, so every press records at once.
     "idle_shutdown_minutes": 0,
-    # Linux: show a "Listening / Transcribing" banner. The tray icon always changes colour.
+    # Show a "Listening / Transcribing" banner (Linux: a notification; macOS: a pill at
+    # the bottom of the screen). The tray icon always changes colour.
     "notifications": True,
     # Play a short sound when recording starts and stops.
     "sounds": True,

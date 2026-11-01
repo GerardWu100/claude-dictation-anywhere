@@ -35,6 +35,9 @@ if IS_MAC:
 MAX_RECORDING_S = 115
 IDLE_CHECK_INTERVAL_S = 30
 CAPTURE_TIMEOUT_S = 15
+# How often a shortcut blocked by macOS is retried while the settings page is open,
+# so it starts working soon after you grant Input Monitoring.
+LISTENER_RETRY_INTERVAL_S = 5
 HISTORY_PAGE_SIZE = 100
 
 # Settings whose change needs a restart of the shortcut listener / hidden session.
@@ -57,6 +60,8 @@ class DictationController:
         self.state = "idle"
         self.last_error = ""
         self.listener_error = ""  # kept apart: a successful dictation must not hide it
+        self.listener_permission: str | None = None  # macOS permission the shortcut lacks
+        self._listener_tried_at = 0.0
         self.last_text = ""
         self.capture = {"status": "none"}  # status: none | waiting | done | timeout | rejected
         self.on_change: list = []
@@ -116,8 +121,15 @@ class DictationController:
         self._set_state("capturing")
         threading.Thread(target=self._capture, daemon=True, name="capture").start()
 
+    def open_privacy_settings(self, permission: str) -> None:
+        """macOS: open the System Settings page for ``permission``. Raises ValueError."""
+        if not IS_MAC or permission not in mac_events.PERMISSIONS:
+            raise ValueError(f"unknown permission {permission!r}")
+        mac_events.open_privacy_settings(permission)
+
     def status(self) -> dict:
-        """Everything the settings page shows."""
+        """Everything the settings page shows (polled by it every few seconds)."""
+        self._retry_blocked_listener()
         return {
             "state": self.state,
             "last_error": self.last_error,
@@ -128,7 +140,11 @@ class DictationController:
             ),
             "capture": self.capture,
             "warnings": [
-                *([self.listener_error] if self.listener_error else []),
+                *(
+                    [{"text": self.listener_error, "permission": self.listener_permission}]
+                    if self.listener_error
+                    else []
+                ),
                 *output.setup_warnings(self.settings),
             ],
             "settings": self.settings,
@@ -164,9 +180,22 @@ class DictationController:
             listener.start()
             self.listener = listener
             self.listener_error = ""
+            self.listener_permission = None
         except (ValueError, OSError) as error:
             self.listener_error = f"Shortcut not active: {error}"
+            self.listener_permission = getattr(error, "permission", None)
             log.warning(self.listener_error)
+        self._listener_tried_at = time.monotonic()
+
+    def _retry_blocked_listener(self) -> None:
+        """Start the shortcut once macOS allows it, without restarting the app."""
+        if (
+            self.listener_permission
+            and self.state != "capturing"
+            and time.monotonic() - self._listener_tried_at > LISTENER_RETRY_INTERVAL_S
+            and mac_events.can_listen()
+        ):
+            self._start_listener()
 
     def _capture(self) -> None:
         if self.listener:

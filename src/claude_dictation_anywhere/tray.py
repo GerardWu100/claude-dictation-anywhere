@@ -9,6 +9,7 @@ import threading
 import pystray
 from PIL import Image, ImageDraw
 
+from .hotkeys import describe_shortcut
 from .settings import IS_MAC
 
 if IS_MAC:
@@ -60,6 +61,16 @@ class TrayIcon:
         self.controller = controller
         menu = pystray.Menu(
             pystray.MenuItem(lambda _: STATE_TITLES.get(controller.state, ""), None, enabled=False),
+            pystray.MenuItem(
+                lambda _: (
+                    "Shortcut: "
+                    + describe_shortcut(
+                        controller.settings["shortcut_key"], controller.settings["shortcut_device"]
+                    )
+                ),
+                None,
+                enabled=False,
+            ),
             pystray.MenuItem("Settings and history…", lambda: open_settings(), default=True),
             pystray.MenuItem(
                 "Pause shortcut",

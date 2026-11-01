@@ -18,7 +18,10 @@ starts this program (Terminal, iTerm, ...):
                        Code freezes at "keep holding…", so the app asks at start
 """
 
+import functools
 import os
+import re
+import subprocess
 import threading
 import time
 
@@ -34,18 +37,14 @@ TYPE_KEY_DELAY_S = 0.002
 # kVK_ANSI_V: the V position on a US layout, used for Cmd+V.
 V_KEY_CODE = 9
 
-INPUT_MONITORING_HELP = (
-    "macOS blocks reading the shortcut. In System Settings → Privacy & Security → "
-    "Input Monitoring, turn on the app that started this one (your terminal), then restart it."
-)
-MICROPHONE_HELP = (
-    "macOS blocks the microphone. In System Settings → Privacy & Security → Microphone, "
-    "turn on the app that started this one (your terminal), then restart it."
-)
-ACCESSIBILITY_HELP = (
-    "macOS blocks typing. In System Settings → Privacy & Security → Accessibility, "
-    "turn on the app that started this one (your terminal), then restart it."
-)
+# Privacy permission -> (what it is for, anchor of its System Settings page).
+PERMISSIONS = {
+    "Input Monitoring": ("reading the shortcut", "Privacy_ListenEvent"),
+    "Accessibility": ("typing the text", "Privacy_Accessibility"),
+    "Microphone": ("the microphone", "Privacy_Microphone"),
+}
+PRIVACY_SETTINGS_URL = "x-apple.systempreferences:com.apple.preference.security?"
+FALLBACK_APP_NAME = "the app you started this from (your terminal)"
 
 # Keys that type nothing, by key code, with the names the settings page shows.
 # Any other key code types text and is refused as a shortcut.
@@ -143,6 +142,55 @@ def event_input(event_type: int, event) -> tuple[str, bool, bool] | None:
     return f"key:{code}", event_type == Quartz.kCGEventKeyDown, repeat
 
 
+@functools.cache
+def launching_app_name() -> str:
+    """Name of the app this program was started from, e.g. "Ghostty".
+
+    macOS gives a program the privacy permissions of the app that started it,
+    so the warnings name that app: the first ``*.app`` among the parent processes.
+    """
+    pid = os.getppid()
+    while pid > 1:
+        try:
+            line = subprocess.run(
+                ["ps", "-o", "ppid=,comm=", "-p", str(pid)],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()  # e.g. "1 /Applications/Ghostty.app/Contents/MacOS/ghostty"
+        except (OSError, subprocess.CalledProcessError):
+            break
+        parent, _, command = line.partition(" ")
+        app = re.search(r"([^/]+)\.app/Contents/MacOS/", command)
+        if app:
+            return app.group(1)
+        pid = int(parent)
+    return FALLBACK_APP_NAME
+
+
+def permission_help(permission: str) -> str:
+    """How to fix a missing permission, e.g. "macOS blocks typing the text: ... turn on Ghostty."""
+    purpose, _ = PERMISSIONS[permission]
+    return (
+        f"macOS blocks {purpose}. In System Settings → Privacy & Security → {permission}, "
+        f"turn on {launching_app_name()}. Restart this app if the message stays."
+    )
+
+
+def open_privacy_settings(permission: str) -> None:
+    """Open the System Settings page where ``permission`` is turned on."""
+    _, anchor = PERMISSIONS[permission]
+    subprocess.Popen(["open", PRIVACY_SETTINGS_URL + anchor])
+
+
+class PermissionMissing(PermissionError):
+    """macOS refuses a privacy permission; ``permission`` is a key of ``PERMISSIONS``."""
+
+    def __init__(self, permission: str):
+        super().__init__(permission_help(permission))
+        self.permission = permission
+
+
 class EventTap:
     """A Quartz event tap on its own thread; calls ``handle(name, pressed, repeat)``.
 
@@ -168,12 +216,12 @@ class EventTap:
     def start(self) -> None:
         if not Quartz.CGPreflightListenEventAccess():
             Quartz.CGRequestListenEventAccess()  # adds the app to the list, off by default
-            raise PermissionError(INPUT_MONITORING_HELP)
+            raise PermissionMissing("Input Monitoring")
         self._thread = threading.Thread(target=self._run, daemon=True, name="event-tap")
         self._thread.start()
         self._ready.wait(TAP_START_TIMEOUT_S)
         if self._loop is None:
-            raise PermissionError(INPUT_MONITORING_HELP)
+            raise PermissionMissing("Input Monitoring")
 
     def stop(self) -> None:
         if self._loop is not None:
@@ -241,9 +289,9 @@ def request_microphone_if_unasked() -> None:
         )
 
 
-def permission_warnings(needs_typing: bool) -> list[str]:
-    """Plain-language fixes for permissions macOS has refused (the shortcut's is reported apart)."""
-    warnings = []
+def missing_permissions(needs_typing: bool) -> list[str]:
+    """Microphone and Accessibility, if macOS refuses them (Input Monitoring is reported apart)."""
+    missing = []
     status = AVFoundation.AVCaptureDevice.authorizationStatusForMediaType_(
         AVFoundation.AVMediaTypeAudio
     )
@@ -251,10 +299,10 @@ def permission_warnings(needs_typing: bool) -> list[str]:
         AVFoundation.AVAuthorizationStatusDenied,
         AVFoundation.AVAuthorizationStatusRestricted,
     ):
-        warnings.append(MICROPHONE_HELP)
+        missing.append("Microphone")
     if needs_typing and not can_type():
-        warnings.append(ACCESSIBILITY_HELP)
-    return warnings
+        missing.append("Accessibility")
+    return missing
 
 
 def request_typing_permission() -> None:

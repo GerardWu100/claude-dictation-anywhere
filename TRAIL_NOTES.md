@@ -1,6 +1,8 @@
 # Trail notes
 
 ## Decisions
+- 2026-10-31 macOS shortcut hiding: the event tap is active (can drop events) only when the shortcut has a non-modifier key (letter, F-key, mouse button); modifier-only shortcuts keep a listen-only tap, which cannot add input latency. Tested live: Command+Option+G dictates with no stray G.
+- 2026-10-31 macOS banner is a non-activating, click-through NSPanel pill above the Dock, not `osascript display notification` (that lands in Notification Center history under Script Editor's icon).
 
 - 2026-10-31 macOS input uses a direct Quartz event tap (`mac_events.py`), not pynput. pynput 1.8.2 reports every mouse button past the third as `Button.middle` (side buttons unusable) and gives no sign when Input Monitoring is missing. Shortcuts are stored as `key:<key code>` / `mouse:<button number>`, so they follow the physical key under any layout.
 - 2026-10-31 macOS refuses to type when the front app changed between release and delivery; the text stays on the clipboard. The front app is read at release, not at press, so nothing delays the first Space.
@@ -14,7 +16,8 @@
 
 ## Assumptions
 
-- 2026-10-31 macOS shortcut and typing were never exercised with real permissions: the test shell had no Input Monitoring or Accessibility. Event parsing is unit-tested with synthetic events. Check: run from a terminal that has both, press Right Command, dictate into TextEdit.
+- 2026-10-31 After Input Monitoring is granted, the app retries the shortcut every 5 s while the settings page polls; whether macOS lets a running process create the tap without a restart is unchecked. Check: start without the permission, grant it, watch the warning.
+- 2026-10-31 Key-combination shortcuts on Linux (evdev) were written on macOS and only unit-tested through the shared combination logic. Check on Arch: set Ctrl+Alt with "Change…", dictate.
 
 ## Gotchas
 

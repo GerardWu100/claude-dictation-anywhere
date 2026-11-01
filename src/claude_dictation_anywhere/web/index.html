@@ -33,7 +33,9 @@
          border-top: 1px solid var(--line); flex-wrap: wrap; }
   .row:first-of-type { border-top: 0; }
   .muted { color: var(--muted); font-size: 13px; }
-  .warn { background: var(--warn-bg); color: var(--warn-text); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; font-size: 14px; }
+  .warn { background: var(--warn-bg); color: var(--warn-text); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; font-size: 14px;
+          display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+  .warn button { flex: none; font-size: 13px; }
   button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
            border-radius: 8px; padding: 6px 12px; cursor: pointer; }
   button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
@@ -110,7 +112,7 @@
       <input type="checkbox" id="sounds" data-setting="sounds"></div>
     <div class="row"><label for="mute_while_dictating">Mute the speakers while recording</label>
       <input type="checkbox" id="mute_while_dictating" data-setting="mute_while_dictating"></div>
-    <div class="row"><label for="notifications">"Listening / Transcribing" banner (Linux)</label>
+    <div class="row"><label for="notifications">"Listening / Transcribing" banner</label>
       <input type="checkbox" id="notifications" data-setting="notifications"></div>
     <div class="row"><label for="prewarm">Start Claude Code with the app (first press is instant)</label>
       <input type="checkbox" id="prewarm" data-setting="prewarm"></div>
@@ -159,9 +161,17 @@ function render(status) {
   document.getElementById("claude").textContent = claude;
 
   const warnings = [...status.warnings];
-  if (status.last_error) warnings.unshift(status.last_error);
+  if (status.last_error) warnings.unshift({text: status.last_error, permission: null});
   document.getElementById("warnings").replaceChildren(...warnings.map(w => {
-    const div = document.createElement("div"); div.className = "warn"; div.textContent = w; return div;
+    const div = document.createElement("div"); div.className = "warn";
+    const text = document.createElement("span"); text.textContent = w.text; div.append(text);
+    if (w.permission) {
+      const open = document.createElement("button");
+      open.textContent = `Open ${w.permission} settings`;
+      open.onclick = () => api("POST", "/api/open-privacy", {permission: w.permission});
+      div.append(open);
+    }
+    return div;
   }));
 
   for (const el of document.querySelectorAll("[data-setting]")) {

@@ -33,7 +33,7 @@ Wispr Flow details as published in October 2026; check its site for current plan
 - 📋 **Typed and copied:** text lands at your cursor and on your clipboard.
 - 🕘 **History:** every transcript is kept on your computer, ready to copy again.
 - 🔇 **Mutes your speakers while you talk:** music or a podcast playing in any app won't leak into the transcript. Sound comes back the moment you let go. On by default.
-- 🟠 **Always visible:** tray icon colours plus a short sound show when it's listening.
+- 🟠 **Always visible:** the tray icon changes colour, a short sound plays, and a small "Listening…" banner appears (a pill at the bottom of the screen on macOS, a notification on Linux). It never takes focus from the app you're typing in.
 - 🌍 **20 languages:** every language Claude Code's dictation supports.
 - 🪶 **Uses your own Claude Code:** nothing bundled, no API key, no extra account.
 
@@ -69,7 +69,7 @@ release ────────────► the transcript lands in Claude C
   - **Accessibility**, to type or paste the text.
   - **Microphone**: the app asks on its first start. Answer that prompt; until you do, Claude Code freezes at "keep holding…".
 
-  Restart the app after changing these. The settings page lists any that are still missing.
+  The settings page names the app to turn on and has a button that opens the right page in System Settings. Restart the app if a warning stays after you allow it.
 
 ## Install and run
 

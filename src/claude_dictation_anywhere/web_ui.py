@@ -7,6 +7,7 @@ Routes (all JSON except the page itself):
     POST /api/settings        body: {setting: value, ...}; replies with the new status
     POST /api/capture         start waiting for a new shortcut
     POST /api/history/clear   delete the saved history
+    POST /api/open-privacy    macOS, body {"permission": "Accessibility"}: open its System Settings page
 
 Every /api request must carry the header ``X-CDA-Token`` with a random token
 that is only written into the page. Other web pages you visit cannot read the
@@ -124,6 +125,10 @@ class SettingsPage:
                         page.controller.capture_shortcut()
                     elif self.path == "/api/history/clear":
                         page.controller.history.clear()
+                    elif self.path == "/api/open-privacy":
+                        if not isinstance(data, dict):
+                            raise ValueError("body must be a JSON object")
+                        page.controller.open_privacy_settings(data.get("permission"))
                     else:
                         self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
                         return

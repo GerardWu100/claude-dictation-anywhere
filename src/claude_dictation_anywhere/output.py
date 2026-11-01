@@ -69,10 +69,20 @@ def clipboard_command() -> list[str] | None:
     return None
 
 
-def setup_warnings(settings: dict) -> list[str]:
-    """Plain-language fixes for tools or permissions the current settings need but lack."""
+def setup_warnings(settings: dict) -> list[dict]:
+    """Fixes for tools or permissions the current settings need but lack.
+
+    Returns
+    -------
+    list of dict
+        ``{"text": plain-language fix, "permission": macOS privacy permission or None}``;
+        the settings page offers to open that permission's System Settings page.
+    """
     if IS_MAC:
-        return mac_events.permission_warnings(needs_typing=settings["output"] != "none")
+        return [
+            {"text": mac_events.permission_help(p), "permission": p}
+            for p in mac_events.missing_permissions(needs_typing=settings["output"] != "none")
+        ]
     warnings = []
     needs_clipboard = settings["copy_to_clipboard"] or settings["output"] == "paste"
     if needs_clipboard and clipboard_command() is None:
@@ -82,7 +92,7 @@ def setup_warnings(settings: dict) -> list[str]:
         )
     if settings["output"] != "none" and not shutil.which("ydotool"):
         warnings.append("Typing and pasting need ydotool with its ydotoold service running.")
-    return warnings
+    return [{"text": warning, "permission": None} for warning in warnings]
 
 
 def copy_to_clipboard(text: str) -> bool:
@@ -120,7 +130,7 @@ def insert_text(text: str, method: str) -> None:
 def _insert_mac(text: str, method: str) -> None:
     if not mac_events.can_type():
         mac_events.request_typing_permission()
-        raise RuntimeError(mac_events.ACCESSIBILITY_HELP)
+        raise mac_events.PermissionMissing("Accessibility")
     if method == "paste":
         copy_to_clipboard(text)
         time.sleep(PASTE_AFTER_COPY_S)

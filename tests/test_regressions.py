@@ -63,6 +63,19 @@ class RequestValidationTest(unittest.TestCase):
         handler._json = Mock()
         return page, handler
 
+    def test_open_privacy_rejects_unknown_permission(self):
+        from claude_dictation_anywhere import controller as controller_module
+
+        for body in (b'{"permission": "Camera"}', b"[]"):
+            with self.subTest(body=body):
+                page, handler = self.handler(str(len(body)), body)
+                handler.path = "/api/open-privacy"
+                page.controller.open_privacy_settings.side_effect = lambda permission: (
+                    controller_module.DictationController.open_privacy_settings(Mock(), permission)
+                )
+                handler.do_POST()
+                self.assertEqual(handler._json.call_args.args[1], 400)
+
     def test_bad_lengths_rejected_before_read_or_mutation(self):
         for length in ("-1", "invalid", str(web_ui.MAX_BODY_BYTES + 1)):
             with self.subTest(length=length):

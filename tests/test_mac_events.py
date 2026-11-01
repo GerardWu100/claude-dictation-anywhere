@@ -92,6 +92,34 @@ class ShortcutHidingTest(unittest.TestCase):
         self.assertFalse(can_hide)
 
 
+@unittest.skipUnless(settings.IS_MAC, "macOS permission help")
+class PermissionHelpTest(unittest.TestCase):
+    def test_names_the_first_app_bundle_among_parents(self):
+        chain = {
+            "500": "400 /bin/zsh",
+            "400": "1 /Applications/Ghostty.app/Contents/MacOS/ghostty",
+        }
+
+        def ps(args, **_kwargs):
+            return Mock(stdout=" " + chain[args[-1]] + "\n")
+
+        mac_events.launching_app_name.cache_clear()
+        try:
+            with (
+                patch.object(mac_events.os, "getppid", return_value=500),
+                patch.object(mac_events.subprocess, "run", side_effect=ps),
+            ):
+                self.assertEqual(mac_events.launching_app_name(), "Ghostty")
+                self.assertIn("turn on Ghostty", mac_events.permission_help("Accessibility"))
+        finally:
+            mac_events.launching_app_name.cache_clear()
+
+    def test_setup_warnings_carry_the_permission(self):
+        with patch.object(mac_events, "missing_permissions", return_value=["Accessibility"]):
+            warnings = output.setup_warnings(dict(settings.DEFAULT_SETTINGS))
+        self.assertEqual([w["permission"] for w in warnings], ["Accessibility"])
+
+
 @unittest.skipUnless(settings.IS_MAC, "macOS app-switch guard")
 class AppSwitchGuardTest(unittest.TestCase):
     def setUp(self):
