@@ -1,6 +1,13 @@
 # Trail notes
 
 ## Decisions
+- 2026-11-01 Read the hidden screen with pyte (a terminal emulator) instead of stripping escape codes from an append-only buffer. Stripping loses characters split across reads, keeps erased text, and cannot tell a menu's arrow from the prompt's. The one new dependency removes all of that, and the old "listning…" gotcha with it.
+- 2026-11-01 The transcript is final when `Voice: processing…` has appeared and gone, not after 0.6 s of quiet. Recorded on 2.1.309: release -> processing 0.18 s -> final text 0.44 s. The quiet rule stays only as a fallback when that word never appears.
+- 2026-11-01 A press while transcribing is refused whole, including one still held when the transcript finishes. Accepting a held one would type into an app while the shortcut's Ctrl is still down, and start recording mid-sentence. In hold mode, a press made during a cold start still counts if it is still held.
+- 2026-11-01 Pause discards with Esc (documented cancel; checked on 2.1.309). A lost shortcut collects the text and keeps it on the page instead, because the user did not ask to throw it away. Neither types.
+- 2026-11-01 Settings changes reach the session by comparing it with the current settings between recordings, not by a queued "restart" event, so no event can be lost.
+- 2026-11-01 Runtime folder moved out of the shared temp folder (macOS: `~/Library/Caches/...`, others: `$XDG_RUNTIME_DIR`, else `~/.cache/...`). A predictable temp name can be taken first by anyone, and macOS deletes temp files unused for 3 days, which would remove the editor hook under a long-running app. The path must have no spaces: it becomes `$EDITOR`.
+- 2026-11-01 Did not add a same-app window or tab check on macOS (Accessibility focused window). A wrong "focus changed" would refuse to type real dictation, and it could not be tested across real apps here; see Untried ideas.
 - 2026-10-31 macOS shortcut hiding: the event tap is active (can drop events) only when the shortcut has a non-modifier key (letter, F-key, mouse button); modifier-only shortcuts keep a listen-only tap, which cannot add input latency. Tested live: Command+Option+G dictates with no stray G.
 - 2026-10-31 macOS banner is a non-activating, click-through NSPanel pill above the Dock, not `osascript display notification` (that lands in Notification Center history under Script Editor's icon).
 
@@ -16,12 +23,19 @@
 
 ## Assumptions
 
+- 2026-11-01 `Voice: processing…` always shows between release and final text on later versions (one recording seen on 2.1.309). Check after a Claude Code update: `--test 5`, then look for "finished without seeing the processing state" in the log.
+- 2026-11-01 All Linux paths of this rewrite ran only with fakes on macOS: evdev events, SYN_DROPPED, uinput, ydotool, wpctl, pactl, and mute by device id. Check on Arch: dictate in hold and toggle, unplug the shortcut device mid-hold, switch outputs mid-recording, side button with grab on.
+- 2026-11-01 Real macOS tap paths not exercised live here: permission revoked while running, Accessibility granted later, a real Command+Option+G hold through the new listener. Check: run the app, dictate, toggle the permissions in System Settings, watch the warnings.
 - 2026-10-31 After Input Monitoring is granted, the app retries the shortcut every 5 s while the settings page polls; whether macOS lets a running process create the tap without a restart is unchecked. Check: start without the permission, grant it, watch the warning.
 - 2026-11-01 Key-combination shortcuts on Linux: the listener starts on all keyboards for Left Ctrl + F20 and the page shows it, and grab replay is unit-tested; a real held combination plus dictation is unchecked. Check on Arch: set Ctrl+Alt with "Change…", dictate; with grab on, check Ctrl+C still copies.
 - 2026-11-01 Linux: a shortcut device that disappears (unplug, suspend) is restarted on the next settings-page poll or within 30 s; whether evdev raises OSError on suspend/resume (rather than going silent) is unchecked. Check: suspend, resume, press the shortcut.
 
 ## Gotchas
 
+- 2026-11-01 macOS: a child that exits with unread pty output stays in state `?E` until the master is drained or closed, so `waitpid` hangs forever. Keep draining until it has exited. `killpg` on a group with only zombies raises EPERM there, not ESRCH.
+- 2026-11-01 A full pty blocks `os.write` when Claude Code stops reading (frozen at the microphone): 115 s of Spaces is more than the buffer holds. The pty is non-blocking so the recording loop stays cancellable.
+- 2026-11-01 pyte prints the `u` of `ESC [ < u` (Claude Code sends it leaving the editor), so `terminal_screen` removes that sequence first, also across reads.
+- 2026-11-01 CSS `display:flex` on `.row` overrides the `hidden` attribute, so hidden rows showed until `[hidden]{display:none!important}`. Found only by looking at the page in a browser.
 - 2026-11-01 Linux key codes KEY_1..KEY_SLASH are not all text keys: Backspace, Tab, Enter, Left Ctrl and Left Shift sit inside that range. Use the explicit ranges in `hotkeys.TEXT_KEY_RANGES`.
 
 - 2026-10-31 macOS: until the microphone prompt for the starting app is answered, Claude Code's native audio check blocks its whole UI at "keep holding…" (no error, Ctrl+G ignored). The app now asks for the microphone at startup and restarts a session frozen this way.
@@ -50,4 +64,6 @@
 
 ## Untried ideas
 
+- macOS same-app window check: compare the Accessibility focused window at release and before typing. Catches switching windows; cannot catch browser tabs; can falsely refuse if an app recreates its window object. About two hours plus testing in several real apps.
+- Optional speech backend with an explicitly documented API (for example Groq's Whisper) for anyone wary of reusing `/voice`: needs the user's own key and explicit choice. A separate product decision, not a fix; about a day.
 - Start at login (Linux `~/.config/autostart` entry, macOS LaunchAgent) as an opt-in setting: removes the manual start; about an hour.
