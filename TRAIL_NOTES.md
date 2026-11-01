@@ -1,6 +1,9 @@
 # Trail notes
 
 ## Decisions
+- 2026-11-01 Linux "type" mode refuses a whole text with characters outside printable ASCII. Measured on ydotool 1.0.4: `café` exits 0 and types `caf` plus a stray Shift; `日本語` types only Shifts. Reporting success with holes is worse than a clear stop, and the text stays on the page and on the clipboard if copying is on. Falling back to paste was rejected because it would write to the clipboard against the setting.
+- 2026-11-01 Stop sending Spaces as soon as voice shows an error notice. Seen in Claude Code's own debug log: after a refused connection, the next Spaces start another attempt at once, so holding the key would retry a refusal for as long as it is held. One press now makes one attempt. A notice while "listening" still shows does not end the recording.
+- 2026-11-01 Use `claude auth status` to tell a lost sign-in from a network failure, because a signed-out Claude Code draws an ordinary prompt box. It runs only after the session flags were accepted: a version too old to know `auth` would take the words as a prompt, and that must never be sent. It is outside the terminal UI like `--version`, and only its JSON is read.
 - 2026-11-01 Read the hidden screen with pyte (a terminal emulator) instead of stripping escape codes from an append-only buffer. Stripping loses characters split across reads, keeps erased text, and cannot tell a menu's arrow from the prompt's. The one new dependency removes all of that, and the old "listning…" gotcha with it.
 - 2026-11-01 The transcript is final when `Voice: processing…` has appeared and gone, not after 0.6 s of quiet. Recorded on 2.1.309: release -> processing 0.18 s -> final text 0.44 s. The quiet rule stays only as a fallback when that word never appears.
 - 2026-11-01 A press while transcribing is refused whole, including one still held when the transcript finishes. Accepting a held one would type into an app while the shortcut's Ctrl is still down, and start recording mid-sentence. In hold mode, a press made during a cold start still counts if it is still held.
@@ -24,14 +27,19 @@
 ## Assumptions
 
 - 2026-11-01 `Voice: processing…` always shows between release and final text on later versions (one recording seen on 2.1.309). Check after a Claude Code update: `--test 5`, then look for "finished without seeing the processing state" in the log.
-- 2026-11-01 All Linux paths of this rewrite ran only with fakes on macOS: evdev events, SYN_DROPPED, uinput, ydotool, wpctl, pactl, and mute by device id. Check on Arch: dictate in hold and toggle, unplug the shortcut device mid-hold, switch outputs mid-recording, side button with grab on.
+- 2026-11-01 Full real dictation with the rewritten code on Linux is unconfirmed: Claude Code's sign-in had expired when it was checked, so only startup and the refused connection ran for real on 2.1.314. Check: `claude`, `/login`, then `--test 5` while speaking; compare the footer states with `tests/fixtures/claude_2.1.309`.
+- 2026-11-01 Real hardware on Linux is unconfirmed; everything else in `tests/test_live_linux.py` passes with virtual devices. Check on Arch: hold the real F8, unplug the receiver mid-hold, a real side button with grab on in a browser, Ctrl+C with grab on.
+- 2026-11-01 X11 is unchecked: this machine runs GNOME on Wayland and has no xclip. Check on an X11 session: copy, paste, and type.
 - 2026-11-01 Real macOS tap paths not exercised live here: permission revoked while running, Accessibility granted later, a real Command+Option+G hold through the new listener. Check: run the app, dictate, toggle the permissions in System Settings, watch the warnings.
 - 2026-10-31 After Input Monitoring is granted, the app retries the shortcut every 5 s while the settings page polls; whether macOS lets a running process create the tap without a restart is unchecked. Check: start without the permission, grant it, watch the warning.
-- 2026-11-01 Key-combination shortcuts on Linux: the listener starts on all keyboards for Left Ctrl + F20 and the page shows it, and grab replay is unit-tested; a real held combination plus dictation is unchecked. Check on Arch: set Ctrl+Alt with "Change…", dictate; with grab on, check Ctrl+C still copies.
 - 2026-11-01 Linux: a shortcut device that disappears (unplug, suspend) is restarted on the next settings-page poll or within 30 s; whether evdev raises OSError on suspend/resume (rather than going silent) is unchecked. Check: suspend, resume, press the shortcut.
 
 ## Gotchas
 
+- 2026-11-01 Linux: a signed-out Claude Code still reaches an ordinary prompt box, showing "API Usage Billing" where it showed the plan. After an expired sign-in the first hold logged "OAuth refresh failed ... 400" and "voice_stream ... HTTP 401", the screen said only "Voice connection failed. Check your network", and Claude Code then cleared its own login. `claude --debug-file <path>` shows this; it holds no audio, but read it with care.
+- 2026-11-01 Linux pty: holds 20,480 bytes of unread input, so 115 s of Spaces (about 3,800) never fills it, unlike macOS. Tests that need a full pty must write until it refuses.
+- 2026-11-01 Linux uinput: closing a virtual device right after writing to it loses what a reader had not read, because the reader gets ENODEV first. The kernel releases that device's held keys itself, so nothing stays held, but the release cannot be observed in a test.
+- 2026-11-01 ydotool's virtual device can be grabbed (EVIOCGRAB) to see what it would type without typing into the app in front. `wpctl get-volume <missing id>` exits 0 and says "not found"; `wpctl set-mute <missing id>` exits 3.
 - 2026-11-01 macOS: a child that exits with unread pty output stays in state `?E` until the master is drained or closed, so `waitpid` hangs forever. Keep draining until it has exited. `killpg` on a group with only zombies raises EPERM there, not ESRCH.
 - 2026-11-01 A full pty blocks `os.write` when Claude Code stops reading (frozen at the microphone): 115 s of Spaces is more than the buffer holds. The pty is non-blocking so the recording loop stays cancellable.
 - 2026-11-01 pyte prints the `u` of `ESC [ < u` (Claude Code sends it leaving the editor), so `terminal_screen` removes that sequence first, also across reads.

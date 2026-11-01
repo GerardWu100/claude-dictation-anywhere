@@ -106,10 +106,10 @@ A microphone icon appears in the tray or menu bar, and the settings page opens i
 
 All of these are on the settings page:
 
-- **Shortcut:** press **Change…**, then press any key or mouse button, or hold several keys together and let go (for example Control + Option). Function keys, modifiers, combinations, and mouse side or sniper buttons all work. A combination fires once all its keys are down and stops when you let go of any of them. Shortcuts that would type text are refused. The G in Ctrl + Alt + G (or Command + Option + G) does not reach the app you are in; G pressed alone still types G.
-- **Stop the shortcut doing its normal job** (Linux): needed for mouse side buttons, which otherwise also mean Back. Modifiers in a combination keep working, so Ctrl + C is unaffected. On macOS this is always on for keys that are not modifiers.
+- **Shortcut:** press **Change…**, then press any key or mouse button, or hold several keys together and let go (for example Control + Option). Function keys, modifiers, combinations, and mouse side or sniper buttons all work. A combination fires once all its keys are down and stops when you let go of any of them. Shortcuts that would type text are refused. On macOS the G in Command + Option + G does not reach the app you are in, and G pressed alone still types G. On Linux the same holds with the next setting on; with it off, the settings page warns that the key also reaches the app.
+- **Stop the shortcut doing its normal job** (Linux): needed for mouse side buttons, which otherwise also mean Back, and for the G in Ctrl + Alt + G. Modifiers in a combination keep working, so Ctrl + C is unaffected. On macOS this is always on for keys that are not modifiers.
 - **Mode:** *Hold to talk*, or *Press to start, press to stop*. A press while the last recording is still transcribing is ignored, so wait for the blue icon to clear.
-- **Text:** type it, paste it, or don't insert it. Optionally also copy it to the clipboard. With copying off, nothing is written to the clipboard, not even after a failure; only paste mode uses it, because pasting works that way. Typed text has its line breaks replaced by spaces, because a typed line break is an Enter key.
+- **Text:** type it, paste it, or don't insert it. Optionally also copy it to the clipboard. With copying off, nothing is written to the clipboard, not even after a failure; only paste mode uses it, because pasting works that way. Typed text has its line breaks and tabs replaced by spaces, because a typed line break is an Enter key and a typed tab moves the focus.
 - **Mute the speakers while recording:** on by default. Mutes the default output (your volume level is untouched) and unmutes when you release; if it was already muted, it stays muted. If you switch outputs while recording, the one that was muted is the one unmuted. If you press mute yourself while recording, it still unmutes at release.
 - **Pause shortcut** (tray menu): stops a recording at once and discards its text. Text already recorded is kept on the settings page instead of being typed.
 - **Language:** any of the 20 languages Claude Code's dictation supports.
@@ -133,15 +133,15 @@ The settings page is served only on `127.0.0.1`, behind a random token for each 
 
 - It depends on Claude Code's screen and keys. A Claude Code update can break it until this app is updated; see Compatibility.
 - One recording can last at most about 2 minutes (Claude Code's own limit).
-- Linux "type" mode types only characters on a US keyboard. Use "paste" mode for accents, other alphabets, or non-US layouts. Paste presses Ctrl+V, which most Linux terminals do not treat as paste.
+- Linux "type" mode types only characters on a US keyboard. Text with accents or other alphabets is not typed at all, rather than typed with letters missing: it waits on the settings page, and on the clipboard if copying is on. Use "paste" mode for those, and for non-US layouts. Paste presses Ctrl+V, which most Linux terminals do not treat as paste.
 - The target is the app in front when you release. On macOS, if another app is in front when the text is ready, or you switch while it types, typing stops; another window or tab of the same app is not noticed. On Linux the front window cannot be read on Wayland, so the text goes into whatever has focus then.
 - macOS: Caps Lock cannot be the shortcut, because macOS reports it as locked, not as held. Hiding a shortcut's key from other apps needs Accessibility, even with text insertion off; the settings page warns if it is missing.
 
 ## Compatibility
 
-Checked with Claude Code **2.1.309** on macOS. The app relies on these options and screen states:
+Checked with Claude Code **2.1.309** on macOS, end to end. On Linux, Claude Code **2.1.314** was checked for startup, signed-out state, and a refused voice connection; a full dictation with this version is still to be confirmed. The app relies on these options and screen states:
 
-- Options: `--safe-mode`, `--strict-mcp-config`, `--disable-slash-commands`, `--tools ""`, `--settings`, and the `EDITOR` variable for Ctrl+G.
+- Options: `--safe-mode`, `--strict-mcp-config`, `--disable-slash-commands`, `--tools ""`, `--settings`, the `EDITOR` variable for Ctrl+G, and `claude auth status` to tell an expired sign-in from a network failure.
 - Footer words: `keep holding…` and `listening…` (both in Claude Code's voice docs), and `Voice: processing…` (observed, undocumented).
 - Prompt box: a `❯` row directly under a rule line. The first-run trust dialog is answered only if it reads exactly as recorded.
 
@@ -151,6 +151,8 @@ Checked with Claude Code **2.1.309** on macOS. The app relies on these options a
 | An option is removed or too new | "Update it" error at startup | `claude update` |
 | `Voice: processing…` is reworded | Falls back to waiting for a quiet screen, which can cut off slow text | Update this app |
 | Text does not finish within 12 s | Offered on the settings page, not typed; the session restarts | Copy it, dictate again |
+| The sign-in has expired | Says so when the app starts, or at the press; no more Spaces are sent for that press, so Claude Code does not keep retrying | Run `claude`, type `/login`, quit it, press again |
+| The voice service cannot be reached | Same: one attempt per press, and an error | Check your network or VPN, press again |
 
 Run `claude-dictation-anywhere --test 5` to check everything end to end. It sends one real dictation.
 
