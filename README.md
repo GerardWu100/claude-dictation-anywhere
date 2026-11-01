@@ -139,7 +139,7 @@ The settings page is served only on `127.0.0.1`, behind a random token for each 
 
 ## Compatibility
 
-Checked with Claude Code **2.1.309** on macOS, end to end. On Linux, Claude Code **2.1.314** was checked for startup, signed-out state, and a refused voice connection; a full dictation with this version is still to be confirmed. The app relies on these options and screen states:
+Checked end to end with Claude Code **2.1.309** on macOS and **2.1.314** on Linux (GNOME on Wayland). The app relies on these options and screen states:
 
 - Options: `--safe-mode`, `--strict-mcp-config`, `--disable-slash-commands`, `--tools ""`, `--settings`, the `EDITOR` variable for Ctrl+G, and `claude auth status` to tell an expired sign-in from a network failure.
 - Footer words: `keep holding…` and `listening…` (both in Claude Code's voice docs), and `Voice: processing…` (observed, undocumented).

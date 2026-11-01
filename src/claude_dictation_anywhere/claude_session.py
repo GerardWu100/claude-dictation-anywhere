@@ -92,8 +92,8 @@ ENTER = b"\r"
 # Model for the hidden session. Dictation never sends a prompt; the cheapest
 # model only limits the cost if something ever did.
 HIDDEN_SESSION_MODEL = "haiku"
-# The version the screen layout and footer words were recorded from (tests/fixtures/).
-TESTED_CLAUDE_VERSION = "2.1.309"
+# The newest version checked end to end; its screens are recorded in tests/fixtures/.
+TESTED_CLAUDE_VERSION = "2.1.314"
 
 # Where Claude Code is usually installed when `claude` is not on PATH (a tray
 # app started from the desktop often has a shorter PATH than a terminal).
