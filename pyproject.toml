@@ -13,6 +13,7 @@ dependencies = [
     "evdev>=2.0.0 ; sys_platform == 'linux'",
     "pillow>=13.0.0",
     "pygobject>=3.58.1 ; sys_platform == 'linux'",
+    "pyobjc-framework-applicationservices>=12.2.2 ; sys_platform == 'darwin'",
     "pyobjc-framework-avfoundation>=12.2.2 ; sys_platform == 'darwin'",
     "pyobjc-framework-cocoa>=12.2.2 ; sys_platform == 'darwin'",
     "pyobjc-framework-quartz>=12.2.2 ; sys_platform == 'darwin'",

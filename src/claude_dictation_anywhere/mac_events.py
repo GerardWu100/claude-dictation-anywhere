@@ -22,6 +22,7 @@ import os
 import threading
 import time
 
+import ApplicationServices
 import AVFoundation
 import Quartz
 from AppKit import NSWorkspace
@@ -58,6 +59,20 @@ NAMED_KEYS = {
     101: "F9", 109: "F10", 103: "F11", 111: "F12", 105: "F13", 107: "F14", 113: "F15",
     106: "F16", 64: "F17", 79: "F18", 80: "F19", 90: "F20",
 }  # fmt: skip
+# Keys that type text, named by their place on a US keyboard (key codes are
+# positions, so on other layouts the label may differ from the keycap).
+TEXT_KEY_NAMES = {
+    0: "A", 11: "B", 8: "C", 2: "D", 14: "E", 3: "F", 5: "G", 4: "H", 34: "I", 38: "J",
+    40: "K", 37: "L", 46: "M", 45: "N", 31: "O", 35: "P", 12: "Q", 15: "R", 1: "S",
+    17: "T", 32: "U", 9: "V", 13: "W", 7: "X", 16: "Y", 6: "Z",
+    29: "0", 18: "1", 19: "2", 20: "3", 21: "4", 23: "5", 22: "6", 26: "7", 28: "8", 25: "9",
+    27: "-", 24: "=", 33: "[", 30: "]", 42: "\\", 41: ";", 39: "'", 43: ",", 47: ".",
+    44: "/", 50: "`", 10: "§", 49: "Space", 36: "Return", 48: "Tab", 51: "Delete",
+    65: "Keypad .", 67: "Keypad *", 69: "Keypad +", 71: "Clear", 75: "Keypad /",
+    76: "Keypad Enter", 78: "Keypad -", 81: "Keypad =", 82: "Keypad 0", 83: "Keypad 1",
+    84: "Keypad 2", 85: "Keypad 3", 86: "Keypad 4", 87: "Keypad 5", 88: "Keypad 6",
+    89: "Keypad 7", 91: "Keypad 8", 92: "Keypad 9",
+}  # fmt: skip
 # Modifier key code -> its bit in the event flags. Modifiers send "flags changed"
 # events, not key down/up; the bit says whether that one key is now down. The
 # left/right bits are IOKit's NX_DEVICE*KEYMASK values.
@@ -75,6 +90,7 @@ MOUSE_BUTTON_NAMES = {
     4: "Mouse forward button",
 }
 LEFT_RIGHT_BUTTONS = ("mouse:0", "mouse:1")
+SHIFT_KEYS = frozenset({"key:56", "key:60"})
 
 KEY_EVENTS = (Quartz.kCGEventKeyDown, Quartz.kCGEventKeyUp, Quartz.kCGEventFlagsChanged)
 MOUSE_EVENTS = (Quartz.kCGEventOtherMouseDown, Quartz.kCGEventOtherMouseUp)
@@ -91,7 +107,8 @@ def describe_key(key: str) -> str:
         return key
     if kind == "mouse":
         return MOUSE_BUTTON_NAMES.get(int(number), f"Mouse button {int(number) + 1}")
-    return NAMED_KEYS.get(int(number), f"Key {number}")
+    code = int(number)
+    return NAMED_KEYS.get(code) or TEXT_KEY_NAMES.get(code) or f"Key {number}"
 
 
 def is_printable_key(key: str) -> bool:
@@ -100,31 +117,39 @@ def is_printable_key(key: str) -> bool:
     return kind == "key" and number.isdigit() and int(number) not in NAMED_KEYS
 
 
-def event_input(event_type: int, event) -> tuple[str, bool] | None:
-    """(shortcut name, pressed) for a key or extra mouse button; None for anything else.
+def is_modifier(key: str) -> bool:
+    """Command, Option, Control, Shift, Fn, or Caps Lock."""
+    kind, _, number = key.partition(":")
+    return kind == "key" and number.isdigit() and int(number) in MODIFIER_FLAG_BITS
 
-    Auto-repeat key downs and this process's own typing are dropped.
+
+def event_input(event_type: int, event) -> tuple[str, bool, bool] | None:
+    """(shortcut name, pressed, auto-repeat) for a key or extra mouse button; None otherwise.
+
+    This process's own typing is dropped.
     """
     if Quartz.CGEventGetIntegerValueField(event, Quartz.kCGEventSourceUnixProcessID) == os.getpid():
         return None
     if event_type in MOUSE_EVENTS:
         button = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGMouseEventButtonNumber)
-        return f"mouse:{button}", event_type == Quartz.kCGEventOtherMouseDown
+        return f"mouse:{button}", event_type == Quartz.kCGEventOtherMouseDown, False
     code = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventKeycode)
     if event_type == Quartz.kCGEventFlagsChanged:
         bit = MODIFIER_FLAG_BITS.get(code)
         if bit is None:
             return None
-        return f"key:{code}", bool(Quartz.CGEventGetFlags(event) & bit)
-    if Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventAutorepeat):
-        return None
-    return f"key:{code}", event_type == Quartz.kCGEventKeyDown
+        return f"key:{code}", bool(Quartz.CGEventGetFlags(event) & bit), False
+    repeat = bool(Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventAutorepeat))
+    return f"key:{code}", event_type == Quartz.kCGEventKeyDown, repeat
 
 
 class EventTap:
-    """A listen-only Quartz event tap on its own thread; calls ``handle(name, pressed)``.
+    """A Quartz event tap on its own thread; calls ``handle(name, pressed, repeat)``.
 
-    Listen-only: events still reach the focused app unchanged.
+    Events reach the focused app unchanged, except with ``can_hide`` when
+    ``handle`` returns True: that event is then dropped. Hiding needs an active
+    tap, which needs Accessibility; without it the tap only listens. Listen-only
+    taps cannot slow down typing, so use ``can_hide`` only when needed.
 
     Raises
     ------
@@ -132,8 +157,9 @@ class EventTap:
         From ``start()`` if macOS refuses Input Monitoring (asking once first).
     """
 
-    def __init__(self, handle):
+    def __init__(self, handle, can_hide: bool = False):
         self.handle = handle
+        self.can_hide = can_hide
         self._tap = None
         self._loop = None
         self._thread: threading.Thread | None = None
@@ -162,7 +188,9 @@ class EventTap:
         self._tap = Quartz.CGEventTapCreate(
             Quartz.kCGSessionEventTap,
             Quartz.kCGHeadInsertEventTap,
-            Quartz.kCGEventTapOptionListenOnly,
+            Quartz.kCGEventTapOptionDefault
+            if self.can_hide and can_type()
+            else Quartz.kCGEventTapOptionListenOnly,
             mask,
             self._callback,
             None,
@@ -185,8 +213,8 @@ class EventTap:
             Quartz.CGEventTapEnable(self._tap, True)
             return event
         found = event_input(event_type, event)
-        if found:
-            self.handle(*found)
+        if found and self.handle(*found):
+            return None  # hidden from every app
         return event
 
 
@@ -195,7 +223,8 @@ def can_listen() -> bool:
 
 
 def can_type() -> bool:
-    return bool(Quartz.CGPreflightPostEventAccess())
+    """True if Accessibility is on: either check, since they can disagree right after a grant."""
+    return bool(ApplicationServices.AXIsProcessTrusted() or Quartz.CGPreflightPostEventAccess())
 
 
 def request_microphone_if_unasked() -> None:

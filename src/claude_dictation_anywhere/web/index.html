@@ -151,7 +151,7 @@ function render(status) {
   pill.textContent = STATE_LABELS[status.state] || status.state;
   pill.className = "pill " + status.state;
   document.getElementById("shortcut").textContent = status.shortcut;
-  const notes = {waiting: "Press the key or mouse button you want…", timeout: "No press within 15 seconds.",
+  const notes = {waiting: "Press the key, keys together, or mouse button you want…", timeout: "No press within 15 seconds.",
                  done: "Saved.", rejected: status.capture.message || ""};
   document.getElementById("capture-note").textContent = notes[status.capture.status] || "";
   const claude = status.claude.path ? `${status.claude.version || "?"} · ${status.claude.path}` +

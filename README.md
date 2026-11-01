@@ -29,7 +29,7 @@ Wispr Flow details as published in October 2026; check its site for current plan
 ## Features
 
 - 🎙 **Push-to-talk or toggle:** hold the shortcut, or press once to start and again to stop.
-- ⌨️ **Any key or mouse button:** function keys, right Ctrl or Command, mouse side or sniper buttons. Set it by pressing it.
+- ⌨️ **Any key, key combination, or mouse button:** function keys, right Ctrl or Command, Control + Option, mouse side or sniper buttons. Set it by pressing it.
 - 📋 **Typed and copied:** text lands at your cursor and on your clipboard.
 - 🕘 **History:** every transcript is kept on your computer, ready to copy again.
 - 🔇 **Mutes your speakers while you talk:** music or a podcast playing in any app won't leak into the transcript. Sound comes back the moment you let go. On by default.
@@ -102,7 +102,7 @@ A microphone icon appears in the tray or menu bar, and the settings page opens i
 
 All of these are on the settings page:
 
-- **Shortcut:** press **Change…**, then press any key or mouse button. Function keys, right-hand modifiers, and mouse side or sniper buttons all work. Keys that type text are refused.
+- **Shortcut:** press **Change…**, then press any key or mouse button, or hold several keys together and let go (for example Control + Option). Function keys, modifiers, combinations, and mouse side or sniper buttons all work. A combination fires once all its keys are down and stops when you let go of any of them. Shortcuts that would type text are refused. On macOS, a letter in a combination also reaches the app you are in, so combinations of modifiers alone are the safest.
 - **Mode:** *Hold to talk*, or *Press to start, press to stop*.
 - **Text:** type it, paste it, or don't insert it. Optionally also copy it to the clipboard.
 - **Mute the speakers while recording:** on by default. Mutes the default output (your volume level is untouched) and unmutes when you release; if it was already muted, it stays muted.

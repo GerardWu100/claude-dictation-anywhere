@@ -175,10 +175,11 @@ class DictationController:
         found = hotkeys.capture_next_input(CAPTURE_TIMEOUT_S)
         if found is None:
             self.capture = {"status": "timeout"}
-        elif hotkeys.is_printable_key(found[0]):
+        elif hotkeys.shortcut_types_text(found[0]):
             self.capture = {
                 "status": "rejected",
-                "message": "That key types text. Pick a function key, a modifier, or a mouse button.",
+                "message": "That types text. Add a modifier such as Ctrl or Option, "
+                "or pick a function key or a mouse button.",
             }
         else:
             key, device = found

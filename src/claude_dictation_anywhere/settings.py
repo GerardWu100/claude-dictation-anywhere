@@ -30,6 +30,7 @@ DEFAULT_SETTINGS = {
     # Linux: an input code such as "KEY_F8", "KEY_RIGHTCTRL", "BTN_SIDE" (mouse back).
     # macOS: "key:<key code>" such as "key:54" (Right Command) or "key:100" (F8), or
     # "mouse:<button number>" such as "mouse:3" (back side button).
+    # Keys pressed together are joined by "+", e.g. "key:59+key:58" (Control + Option).
     # The settings page fills this in when you press "Change".
     "shortcut_key": "key:54" if IS_MAC else "KEY_RIGHTCTRL",
     # Linux only: exact name of the device that must send the key, so the same

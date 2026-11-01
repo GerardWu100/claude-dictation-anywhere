@@ -108,9 +108,55 @@ class OutputAndShortcutTest(unittest.TestCase):
     @unittest.skipIf(settings.IS_MAC, "Linux key codes")
     def test_printable_keys_are_refused_as_shortcuts(self):
         self.assertTrue(hotkeys.is_printable_key("KEY_A"))
+        self.assertTrue(hotkeys.shortcut_types_text("KEY_LEFTSHIFT+KEY_A"))
+        self.assertFalse(hotkeys.shortcut_types_text("KEY_LEFTCTRL+KEY_A"))
         self.assertTrue(hotkeys.is_printable_key("KEY_SPACE"))
         self.assertFalse(hotkeys.is_printable_key("KEY_F8"))
         self.assertFalse(hotkeys.is_printable_key("BTN_SIDE"))
+
+
+class CombinationTest(unittest.TestCase):
+    def setUp(self):
+        self.events = []
+        self.combination = hotkeys.Combination(
+            "a+b", lambda: self.events.append("down"), lambda: self.events.append("up")
+        )
+
+    def test_fires_once_all_keys_are_held_in_any_order(self):
+        for key, pressed in (("b", True), ("x", True), ("a", True), ("a", True)):
+            self.combination.feed(key, pressed)
+        self.assertEqual(self.events, ["down"])
+
+    def test_releases_when_any_key_is_let_go(self):
+        for key, pressed in (("a", True), ("b", True), ("b", False), ("a", False)):
+            self.combination.feed(key, pressed)
+        self.assertEqual(self.events, ["down", "up"])
+
+    def test_one_key_alone_never_fires(self):
+        self.combination.feed("a", True)
+        self.combination.feed("a", False)
+        self.assertEqual(self.events, [])
+
+    def test_single_key_shortcut_still_works(self):
+        events = []
+        single = hotkeys.Combination(
+            "a", lambda: events.append("down"), lambda: events.append("up")
+        )
+        single.feed("a", True)
+        single.feed("a", False)
+        self.assertEqual(events, ["down", "up"])
+
+
+@unittest.skipUnless(settings.IS_MAC, "macOS key names")
+class MacShortcutTest(unittest.TestCase):
+    def test_combination_names_and_text_check(self):
+        self.assertEqual(
+            hotkeys.describe_shortcut("key:59+key:58", ""), "Left Control + Left Option"
+        )
+        self.assertFalse(hotkeys.shortcut_types_text("key:59+key:58"))
+        self.assertFalse(hotkeys.shortcut_types_text("key:59+key:2"))  # Control + D
+        self.assertTrue(hotkeys.shortcut_types_text("key:56+key:2"))  # Shift + D
+        self.assertTrue(hotkeys.shortcut_types_text("key:49"))  # Space
 
 
 if __name__ == "__main__":
