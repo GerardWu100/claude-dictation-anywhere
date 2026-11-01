@@ -18,7 +18,7 @@ Claude Code's `/voice` dictation is quick and accurate, and it comes with your C
 |---|---|---|
 | Price | Free with a Claude subscription you already have | Free tier capped at 2,000 words/week; Pro about \$15/month |
 | Linux | ✅ (Wayland and X11) | No Linux app listed |
-| macOS | ✅ (not yet tested) | ✅ |
+| macOS | ✅ | ✅ |
 | Windows | ❌ | ✅ |
 | Speech engine | Claude Code's own `/voice` | Wispr's own service |
 | Word limits | None of its own | Free tier capped |
@@ -64,7 +64,12 @@ release ────────────► the transcript lands in Claude C
   - [`ydotool`](https://github.com/ReimuNotMoe/ydotool) with `ydotoold` running, to type the text.
   - `wl-clipboard` (Wayland) or `xclip` (X11), to copy it to the clipboard.
   - On GNOME, the AppIndicator extension for the tray icon.
-- **macOS** (written for it, not yet tested): allow the app that starts it (your terminal) under System Settings → Privacy & Security → Accessibility, Input Monitoring, and Microphone.
+- **macOS:** in System Settings → Privacy & Security, turn on the app you start it from (Terminal, Ghostty, iTerm…) under:
+  - **Input Monitoring**, to read the shortcut.
+  - **Accessibility**, to type or paste the text.
+  - **Microphone**: the app asks on its first start. Answer that prompt; until you do, Claude Code freezes at "keep holding…".
+
+  Restart the app after changing these. The settings page lists any that are still missing.
 
 ## Install and run
 
@@ -123,7 +128,7 @@ The settings page is served only on `127.0.0.1`, behind a random token for each 
 - It depends on Claude Code's screen and keys. A Claude Code update can break it until this app is updated; run `--test 5` to check.
 - One recording can last at most about 2 minutes (Claude Code's own limit).
 - Linux "type" mode types only characters on a US keyboard. Use "paste" mode for accents.
-- On GNOME Wayland, if you switch windows while it is transcribing, the text goes into the new window.
+- On GNOME Wayland, if you switch windows while it is transcribing, the text goes into the new window. On macOS it is not typed then; it stays on the clipboard.
 - Anthropic's consumer terms limit automated use of its services. This app sends one ordinary dictation per key press through the real Claude Code, but Anthropic hasn't endorsed using it this way. Use it at your own judgment.
 
 

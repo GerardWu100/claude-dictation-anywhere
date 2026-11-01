@@ -66,6 +66,9 @@ CLAUDE_CANDIDATE_PATHS = (
 # Text on the hidden screen that tells the session state apart.
 READY_MARKER = "❯"  # the prompt arrow, drawn once the input box is ready
 TRUST_MARKER = "trust this folder"
+# Shown while Space is held, before recording starts. Still there when Ctrl+G
+# gets no answer means Claude Code froze opening the microphone.
+WARMUP_MARKER = "keep holding"
 LOGGED_OUT_MARKER = "Not logged in"
 # Messages Claude Code shows when dictation fails (from its voice docs).
 VOICE_ERROR_MARKERS = (
@@ -85,6 +88,11 @@ MAX_WARMUP_SPACES = 5
 LOGGED_OUT_HELP = (
     "Claude Code is not logged in. Run `claude` in a terminal, type /login, "
     "and sign in with your Claude.ai account."
+)
+FROZEN_AT_MICROPHONE_HELP = (
+    "Claude Code froze before recording, usually while waiting for microphone permission. "
+    "Answer the macOS prompt if one is open, or allow the app that started this one under "
+    "System Settings → Privacy & Security → Microphone. The next press restarts Claude Code."
 )
 NO_VOICE_HELP = (
     "Recording never started (Claude Code typed the spaces instead). "
@@ -358,7 +366,13 @@ class ClaudeVoiceSession:
         deadline = time.monotonic() + EDITOR_TIMEOUT_S
         while not self.result.exists():
             if time.monotonic() > deadline:
-                raise DictationError(f"Ctrl+G hook never ran: {self.screen[-300:]!r}")
+                frozen_at_microphone = screen_shows(self.screen, WARMUP_MARKER)
+                screen_tail = self.screen[-300:]
+                # A session that ignores Ctrl+G is stuck; the next press starts a fresh one.
+                self.stop()
+                if frozen_at_microphone:
+                    raise DictationError(FROZEN_AT_MICROPHONE_HELP)
+                raise DictationError(f"Ctrl+G hook never ran: {screen_tail!r}")
             time.sleep(0.02)
         raw_text = self.result.read_text(encoding="utf-8")
         self.result.unlink(missing_ok=True)

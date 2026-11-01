@@ -131,6 +131,12 @@ def main() -> None:
     signal.signal(signal.SIGTERM, lambda *_: stopped.set())
     try:
         if IS_MAC:
+            from PyObjCTools import MachSignals
+
+            # Inside AppKit's loop the main thread runs no Python, so plain signal
+            # handlers never fire; Mach signals arrive as run-loop events instead.
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                MachSignals.signal(signum, lambda _signum: stopped.set())
             threading.Thread(target=lambda: (stopped.wait(), tray.stop()), daemon=True).start()
             tray.run()
         else:

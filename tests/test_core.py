@@ -97,6 +97,7 @@ class OutputAndShortcutTest(unittest.TestCase):
     def test_make_typeable(self):
         self.assertEqual(output.make_typeable("“It’s—fine…”"), '"It\'s-fine..."')
 
+    @unittest.skipIf(settings.IS_MAC, "Linux key codes")
     def test_describe_shortcut(self):
         self.assertEqual(
             hotkeys.describe_shortcut("KEY_F8", "Keychron  Link  Keyboard"),

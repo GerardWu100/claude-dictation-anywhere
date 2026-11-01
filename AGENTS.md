@@ -9,4 +9,4 @@ Guiding principles:
 - **Simple over clever.** Tray icon plus a localhost settings page; no native GUI toolkit (a Tk window was tried and rejected as ugly).
 - **Be sparing with real dictation requests when testing.** Prefer startup-only checks; a real recording only when it proves something new.
 
-Layout: `src/claude_dictation_anywhere/` (`claude_session` drives Claude Code, `hotkeys` reads the shortcut, `controller` is the state machine, `output` types or copies, `web_ui` + `web/index.html` are the settings page, `tray` the icon). Tests: `uv run python -m unittest discover -s tests`. Lint: `uv run ruff check src tests && uv run ruff format src tests`.
+Layout: `src/claude_dictation_anywhere/` (`claude_session` drives Claude Code, `hotkeys` reads the shortcut, `mac_events` is the macOS event tap, typing and permission checks, `controller` is the state machine, `output` types or copies, `web_ui` + `web/index.html` are the settings page, `tray` the icon). Tests: `uv run python -m unittest discover -s tests`. Lint: `uv run ruff check src tests && uv run ruff format src tests`.

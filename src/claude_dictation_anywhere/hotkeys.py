@@ -1,14 +1,16 @@
 """Global shortcut: notice when the chosen key or mouse button goes down and up, in any app.
 
 Linux reads the kernel's input devices directly (evdev), so it works on
-Wayland and X11 alike; it needs your user in the `input` group. macOS uses
-pynput (Quartz event taps); it needs Accessibility and Input Monitoring
-permission for the app that starts this program.
+Wayland and X11 alike; it needs your user in the `input` group. macOS uses a
+Quartz event tap (see mac_events.py); it needs Input Monitoring permission for
+the app that starts this program.
 
-Both platforms offer the same two things:
+Both platforms offer the same four things:
 
     TriggerListener(settings, on_down, on_up).start() / .stop()
     capture_next_input(timeout_s) -> (key, device) | None   # for "Change shortcut"
+    describe_shortcut(key, device) -> str                    # for the settings page
+    is_printable_key(key) -> bool                            # refused as a shortcut
 """
 
 import logging
@@ -28,7 +30,7 @@ PASSTHROUGH_DEVICE_NAME = "claude-dictation-anywhere passthrough"
 # ydotool's own typing or our own passthrough back into the trigger.
 IGNORED_DEVICE_PREFIXES = ("ydotoold", PASSTHROUGH_DEVICE_NAME)
 
-# Friendly names for codes people pick most; others are shown as the code without its prefix.
+# Linux: friendly names for codes people pick most; others show the code without its prefix.
 FRIENDLY_KEY_NAMES = {
     "BTN_SIDE": "Mouse back button",
     "BTN_EXTRA": "Mouse forward button",
@@ -37,25 +39,17 @@ FRIENDLY_KEY_NAMES = {
     "KEY_RIGHTALT": "Right Alt",
     "KEY_RIGHTMETA": "Right Super",
     "KEY_CAPSLOCK": "Caps Lock",
-    "Key.cmd_r": "Right Command",
-    "Key.alt_r": "Right Option",
-    "Key.ctrl_r": "Right Control",
 }
 
 
-def describe_shortcut(key: str, device: str) -> str:
-    """Human-readable shortcut, e.g. "F8 on Keychron Link Keyboard"."""
-    name = FRIENDLY_KEY_NAMES.get(key) or key.removeprefix("KEY_").removeprefix("Key.").upper()
-    return f"{name} on {' '.join(device.split())}" if device else name
-
-
 if IS_MAC:
-    from pynput import keyboard, mouse
+    from . import mac_events
 
-    def _pynput_name(item) -> str:
-        """Stable name for a pynput key or button: "Key.f8", "Button.button8", or "char:a"."""
-        char = getattr(item, "char", None)
-        return f"char:{char}" if char else str(item)
+    def describe_shortcut(key: str, device: str) -> str:
+        """Human-readable shortcut, e.g. "Right Command" (``device`` is always "" on macOS)."""
+        return mac_events.describe_key(key)
+
+    is_printable_key = mac_events.is_printable_key
 
     class TriggerListener:
         """Calls ``on_down`` / ``on_up`` when the shortcut is pressed / released (macOS)."""
@@ -64,12 +58,12 @@ if IS_MAC:
             self.key = settings["shortcut_key"]
             self.on_down, self.on_up = on_down, on_up
             self._held = False
-            self._listeners = []
+            self._tap = mac_events.EventTap(self._handle)
 
-        def _handle(self, item, pressed: bool) -> None:
-            if _pynput_name(item) != self.key:
+        def _handle(self, name: str, pressed: bool) -> None:
+            if name != self.key:
                 return
-            if pressed and not self._held:  # ignore auto-repeat
+            if pressed and not self._held:
                 self._held = True
                 self.on_down()
             elif not pressed and self._held:
@@ -77,50 +71,37 @@ if IS_MAC:
                 self.on_up()
 
         def start(self) -> None:
-            self._listeners = [
-                keyboard.Listener(
-                    on_press=lambda k: self._handle(k, True),
-                    on_release=lambda k: self._handle(k, False),
-                ),
-                mouse.Listener(on_click=lambda _x, _y, b, pressed: self._handle(b, pressed)),
-            ]
-            for listener in self._listeners:
-                listener.start()
+            self._tap.start()
             log.info("listening for %s", self.key)
 
         def stop(self) -> None:
-            for listener in self._listeners:
-                listener.stop()
+            self._tap.stop()
 
     def capture_next_input(timeout_s: float) -> tuple[str, str] | None:
         """Wait for the next key or mouse-button press anywhere; return (name, "")."""
         found: list[str] = []
         done = threading.Event()
 
-        def take(item):
-            name = _pynput_name(item)
-            if name in ("Button.left", "Button.right"):
-                return  # needed for clicking around; never a shortcut
-            found.append(name)
-            done.set()
+        def take(name: str, pressed: bool) -> None:
+            # Left and right clicks are needed for clicking around; never a shortcut.
+            if pressed and name not in mac_events.LEFT_RIGHT_BUTTONS and not done.is_set():
+                found.append(name)
+                done.set()
 
-        listeners = [
-            keyboard.Listener(on_press=take),
-            mouse.Listener(on_click=lambda _x, _y, b, pressed: pressed and take(b)),
-        ]
-        for listener in listeners:
-            listener.start()
+        tap = mac_events.EventTap(take)
+        tap.start()
         done.wait(timeout_s)
-        for listener in listeners:
-            listener.stop()
+        tap.stop()
         return (found[0], "") if found else None
-
-    def is_printable_key(key: str) -> bool:
-        return key.startswith("char:") or key == "Key.space"
 
 else:
     import evdev
     from evdev import ecodes
+
+    def describe_shortcut(key: str, device: str) -> str:
+        """Human-readable shortcut, e.g. "F8 on Keychron Link Keyboard"."""
+        name = FRIENDLY_KEY_NAMES.get(key) or key.removeprefix("KEY_").upper()
+        return f"{name} on {' '.join(device.split())}" if device else name
 
     def _real_devices() -> list["evdev.InputDevice"]:
         devices = []

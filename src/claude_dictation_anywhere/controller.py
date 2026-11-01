@@ -26,7 +26,10 @@ from .claude_session import (
     find_claude,
 )
 from .history import History
-from .settings import check_settings, data_dir, save_settings
+from .settings import IS_MAC, check_settings, data_dir, save_settings
+
+if IS_MAC:
+    from . import mac_events
 
 # Claude Code ends a recording at two minutes; stop just before so the text is kept.
 MAX_RECORDING_S = 115
@@ -53,6 +56,7 @@ class DictationController:
         self.settings = settings
         self.state = "idle"
         self.last_error = ""
+        self.listener_error = ""  # kept apart: a successful dictation must not hide it
         self.last_text = ""
         self.capture = {"status": "none"}  # status: none | waiting | done | timeout | rejected
         self.on_change: list = []
@@ -71,6 +75,8 @@ class DictationController:
 
     def start(self) -> None:
         system_audio.restore_output()  # in case an earlier copy died while recording
+        if IS_MAC:
+            mac_events.request_microphone_if_unasked()
         self._start_listener()
         threading.Thread(target=self._worker, daemon=True, name="dictation").start()
         if self.settings["prewarm"]:
@@ -121,7 +127,10 @@ class DictationController:
                 self.settings["shortcut_key"], self.settings["shortcut_device"]
             ),
             "capture": self.capture,
-            "warnings": output.missing_tools(self.settings),
+            "warnings": [
+                *([self.listener_error] if self.listener_error else []),
+                *output.setup_warnings(self.settings),
+            ],
             "settings": self.settings,
             "history": self.history.recent(HISTORY_PAGE_SIZE) if self.settings["history"] else [],
         }
@@ -154,9 +163,10 @@ class DictationController:
         try:
             listener.start()
             self.listener = listener
+            self.listener_error = ""
         except (ValueError, OSError) as error:
-            self.last_error = f"Shortcut not active: {error}"
-            log.warning(self.last_error)
+            self.listener_error = f"Shortcut not active: {error}"
+            log.warning(self.listener_error)
 
     def _capture(self) -> None:
         if self.listener:
@@ -266,6 +276,8 @@ class DictationController:
             announcer.join()
             # Recording is over; transcribing needs no silence, so sound comes back at once.
             system_audio.restore_output()
+        # The text belongs in the app in front now, even if you switch while it transcribes.
+        target_app = output.focused_app()
         # After: Claude Code has the recording; fetch the finished transcript.
         seconds = time.monotonic() - started
         self._set_state("transcribing")
@@ -282,7 +294,7 @@ class DictationController:
         if self.settings["history"]:
             self.history.add(text, seconds)
         try:
-            output.deliver(text, self.settings)
+            output.deliver(text, self.settings, target_app)
         except Exception as error:
             raise DictationError(f"Got the text but could not insert it: {error}") from error
 

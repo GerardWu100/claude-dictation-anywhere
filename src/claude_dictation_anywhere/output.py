@@ -2,7 +2,11 @@
 
 Linux (Wayland): wl-copy for the clipboard, ydotool to type or press Ctrl+V.
 Linux (X11):     xclip for the clipboard, ydotool to type or press Ctrl+V.
-macOS:           pbcopy for the clipboard, pynput to type or press Cmd+V.
+macOS:           pbcopy for the clipboard, Quartz events to type or press Cmd+V
+                 (see mac_events.py; needs Accessibility permission).
+
+On macOS the text is typed only into the app that was in front when you pressed
+the shortcut; if you switched apps meanwhile, it stays on the clipboard instead.
 """
 
 import logging
@@ -12,6 +16,9 @@ import subprocess
 import time
 
 from .settings import IS_MAC
+
+if IS_MAC:
+    from . import mac_events
 
 log = logging.getLogger(__name__)
 
@@ -62,10 +69,10 @@ def clipboard_command() -> list[str] | None:
     return None
 
 
-def missing_tools(settings: dict) -> list[str]:
-    """Plain-language warnings for tools the current settings need but this system lacks."""
+def setup_warnings(settings: dict) -> list[str]:
+    """Plain-language fixes for tools or permissions the current settings need but lack."""
     if IS_MAC:
-        return []
+        return mac_events.permission_warnings(needs_typing=settings["output"] != "none")
     warnings = []
     needs_clipboard = settings["copy_to_clipboard"] or settings["output"] == "paste"
     if needs_clipboard and clipboard_command() is None:
@@ -111,21 +118,32 @@ def insert_text(text: str, method: str) -> None:
 
 
 def _insert_mac(text: str, method: str) -> None:
-    from pynput.keyboard import Controller, Key
-
-    keyboard = Controller()
+    if not mac_events.can_type():
+        mac_events.request_typing_permission()
+        raise RuntimeError(mac_events.ACCESSIBILITY_HELP)
     if method == "paste":
         copy_to_clipboard(text)
         time.sleep(PASTE_AFTER_COPY_S)
-        with keyboard.pressed(Key.cmd):
-            keyboard.tap("v")
+        mac_events.press_paste()
     else:
-        keyboard.type(text)
+        mac_events.type_text(text)
 
 
-def deliver(text: str, settings: dict) -> None:
-    """Copy (if enabled) and insert ``text`` as the settings say; logs, then re-raises, failures."""
+def focused_app() -> int | None:
+    """macOS: process ID of the app in front, to check later that it is still there; else None."""
+    return mac_events.frontmost_app_pid() if IS_MAC else None
+
+
+def deliver(text: str, settings: dict, target_app: int | None = None) -> None:
+    """Copy (if enabled) and insert ``text`` as the settings say; logs, then re-raises, failures.
+
+    ``target_app`` is ``focused_app()`` from the shortcut press. If another app
+    is in front now, the text is only copied, so it never lands in the wrong app.
+    """
     try:
+        if target_app is not None and settings["output"] != "none" and focused_app() != target_app:
+            copy_to_clipboard(text)
+            raise RuntimeError("you switched apps before it finished, so it is on the clipboard")
         if settings["copy_to_clipboard"] and settings["output"] != "paste":
             copy_to_clipboard(text)
         insert_text(text, settings["output"])

@@ -2,6 +2,9 @@
 
 ## Decisions
 
+- 2026-10-31 macOS input uses a direct Quartz event tap (`mac_events.py`), not pynput. pynput 1.8.2 reports every mouse button past the third as `Button.middle` (side buttons unusable) and gives no sign when Input Monitoring is missing. Shortcuts are stored as `key:<key code>` / `mouse:<button number>`, so they follow the physical key under any layout.
+- 2026-10-31 macOS refuses to type when the front app changed between release and delivery; the text stays on the clipboard. The front app is read at release, not at press, so nothing delays the first Space.
+
 - 2026-10-25 Drive the real Claude Code CLI in a pty instead of calling its voice WebSocket with the token from `~/.claude/.credentials.json`. Anthropic's consumer terms (Feb 2026) allow subscription OAuth only inside Claude Code and Claude.ai; a homemade client risks the account.
 - 2026-10-25 Settings and history live on a localhost browser page, not a native window. A Tk window was built and rejected by the user as ugly (Tk 9 on GNOME: tiny fonts, huge checkboxes); the browser page is simpler.
 - 2026-10-25 The hidden session runs in its own empty folder (`<data dir>/dictation`), outside any git repo, because Claude Code feeds the folder name and git branch to dictation as word hints. The app answers the first-run "trust this folder" prompt itself; the session has no tools, so that is safe.
@@ -11,7 +14,13 @@
 
 ## Assumptions
 
+- 2026-10-31 macOS shortcut and typing were never exercised with real permissions: the test shell had no Input Monitoring or Accessibility. Event parsing is unit-tested with synthetic events. Check: run from a terminal that has both, press Right Command, dictate into TextEdit.
+
 ## Gotchas
+
+- 2026-10-31 macOS: until the microphone prompt for the starting app is answered, Claude Code's native audio check blocks its whole UI at "keep holding…" (no error, Ctrl+G ignored). The app now asks for the microphone at startup and restarts a session frozen this way.
+- 2026-10-31 macOS: inside pystray's AppKit loop the main thread runs no Python, so `signal.signal` handlers (SIGTERM, Ctrl+C) never fire; use `PyObjCTools.MachSignals`.
+- 2026-10-31 Agent shells on this Mac run under the Claude desktop app, so macOS permissions there are the Claude app's, not the terminal's. In zsh, `log` is a builtin; use `/usr/bin/log`.
 
 - 2026-10-25 macOS AppKit crashes if a controller worker updates the tray menu directly. Dispatch tray refresh, visibility, and stop to the main event loop; Linux permits the existing worker updates.
 - 2026-10-25 A hidden `claude` started from inside another Claude Code session inherits `CLAUDE_*` / `ANTHROPIC_*` variables and shows "Not logged in". Strip them.
@@ -36,4 +45,3 @@
 ## Untried ideas
 
 - Start at login (Linux `~/.config/autostart` entry, macOS LaunchAgent) as an opt-in setting: removes the manual start; about an hour.
-- Remember the focused window at press time (macOS: frontmost app via AppKit) and refuse to type if it changed: prevents text landing in the wrong window; not possible on GNOME Wayland without a Shell extension.

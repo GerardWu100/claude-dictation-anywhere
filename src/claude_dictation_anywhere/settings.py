@@ -28,9 +28,10 @@ DICTATION_LANGUAGES = (
 DEFAULT_SETTINGS = {
     # Key or button you press to dictate.
     # Linux: an input code such as "KEY_F8", "KEY_RIGHTCTRL", "BTN_SIDE" (mouse back).
-    # macOS: a key name such as "Key.cmd_r", "Key.f8", or a mouse button "Button.button8".
+    # macOS: "key:<key code>" such as "key:54" (Right Command) or "key:100" (F8), or
+    # "mouse:<button number>" such as "mouse:3" (back side button).
     # The settings page fills this in when you press "Change".
-    "shortcut_key": "Key.cmd_r" if IS_MAC else "KEY_RIGHTCTRL",
+    "shortcut_key": "key:54" if IS_MAC else "KEY_RIGHTCTRL",
     # Linux only: exact name of the device that must send the key, so the same
     # key on another keyboard does nothing. "" = any device.
     "shortcut_device": "",

@@ -34,6 +34,22 @@ class SessionLifecycleTest(unittest.TestCase):
         close.assert_called_once_with(456)
 
 
+class FrozenSessionTest(unittest.TestCase):
+    def test_freeze_at_microphone_stops_session_with_clear_error(self):
+        session = object.__new__(claude_session.ClaudeVoiceSession)
+        session.fd, session.last_output_at = 456, 0.0
+        session.screen = " · keep holding…"
+        session.result = Mock(exists=Mock(return_value=False))
+        session.stop = Mock()
+        with (
+            patch.object(claude_session.os, "write"),
+            patch.object(claude_session, "EDITOR_TIMEOUT_S", 0),
+            self.assertRaisesRegex(claude_session.DictationError, "microphone permission"),
+        ):
+            session.collect_transcript()
+        session.stop.assert_called_once()
+
+
 class RequestValidationTest(unittest.TestCase):
     def handler(self, length, body=b"{}"):
         page = object.__new__(web_ui.SettingsPage)
