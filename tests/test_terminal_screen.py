@@ -24,6 +24,33 @@ def frames(lines: list[str]) -> tuple[str, ...]:
 RULE = "─" * 100
 
 
+class RecordedOnLinuxTest(unittest.TestCase):
+    """Claude Code 2.1.314 on Linux, whose footer and notices must read the same way."""
+
+    def recorded(self, name):
+        return (FIXTURES.parent / "claude_2.1.314" / name).read_bytes()
+
+    def test_a_refused_voice_connection_is_seen_as_a_notice_outside_the_prompt_box(self):
+        data = self.recorded("hold_then_voice_connection_failed.raw")
+        screen = ts.TerminalScreen(ROWS, COLS)
+        phases, notice_seen = set(), False
+        for start in range(0, len(data), 64):
+            rows = screen.feed(data[start : start + 64])
+            phases.add(ts.voice_phase(rows))
+            notice_seen = notice_seen or ts.shows(ts.status_text(rows), "Voice connection failed")
+        self.assertTrue(notice_seen)
+        self.assertEqual(phases - {None}, {ts.WARMUP})
+        self.assertTrue(ts.prompt_ready(rows))
+        self.assertEqual(ts.prompt_box_text(rows), "")
+
+    def test_a_signed_out_claude_code_shows_an_ordinary_prompt(self):
+        # Nothing on this screen says so, which is why the app asks `claude auth status`.
+        rows = screen_of(self.recorded("signed_out_prompt.raw"))
+        self.assertTrue(ts.prompt_ready(rows))
+        self.assertIsNone(ts.voice_phase(rows))
+        self.assertFalse(ts.shows(ts.status_text(rows), "Not logged in"))
+
+
 class RecordedScreensTest(unittest.TestCase):
     def test_real_prompt_is_ready(self):
         self.assertTrue(ts.prompt_ready(screen_of(fixture("ready.raw"))))
