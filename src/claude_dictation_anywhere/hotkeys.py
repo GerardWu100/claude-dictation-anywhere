@@ -12,10 +12,15 @@ as released when any of them is let go.
 
 Both platforms offer the same things:
 
-    TriggerListener(settings, on_down, on_up).start() / .stop()
-    capture_next_input(timeout_s) -> (shortcut, device) | None   # for "Change shortcut"
-    describe_shortcut(shortcut, device) -> str                   # for the settings page
-    shortcut_types_text(shortcut) -> bool                        # refused as a shortcut
+    TriggerListener(settings, on_down, on_up, on_lost).start() / .stop()
+    capture_next_input(timeout_s, cancel) -> (shortcut, device) | None   # "Change shortcut"
+    describe_shortcut(shortcut, device) -> str                           # for the settings page
+    shortcut_problem(shortcut) -> str | None                             # why it is refused
+
+``on_lost`` runs when the listener ends for any reason (device unplugged, permission
+gone, ``stop()``) or loses track of the keys (Linux dropped events). No release will
+arrive for what was held, so whoever waits for one must give up. A new listener starts with every key counted as up,
+so a key still held across a reconnect cannot look like a fresh press.
 """
 
 import logging
@@ -36,6 +41,7 @@ PASSTHROUGH_DEVICE_NAME = "claude-dictation-anywhere passthrough"
 IGNORED_DEVICE_PREFIXES = ("ydotoold", PASSTHROUGH_DEVICE_NAME)
 
 COMBINATION_SEPARATOR = "+"
+CAPTURE_POLL_S = 0.2  # how often "Change shortcut" notices the app is quitting
 
 # Linux: friendly names for codes people pick most; others show the code without its prefix.
 FRIENDLY_KEY_NAMES = {
@@ -80,6 +86,12 @@ class Combination:
         self._hidden: set[str] = set()  # pressed while hidden; their repeats and release too
         self._active = False
 
+    def reset(self) -> None:
+        """Forget every key: the event stream was cut, so what is held is unknown."""
+        self.held.clear()
+        self._hidden.clear()
+        self._active = False
+
     def feed(self, key: str, pressed: bool, repeat: bool = False) -> bool:
         if key not in self.keys:
             return False
@@ -114,6 +126,28 @@ def shortcut_types_text(shortcut: str) -> bool:
     )
 
 
+def shortcut_problem(shortcut: str) -> str | None:
+    """Why ``shortcut`` cannot be used, in plain language; None if it can.
+
+    The same check covers "Change shortcut", the settings file, and the settings API.
+    """
+    keys = shortcut_keys(shortcut)
+    if not all(keys):
+        return "A shortcut needs at least one key."
+    unknown = next((k for k in keys if not is_known_key(k)), None)
+    if unknown:
+        return f"Unknown key code {unknown!r}."
+    if IS_MAC and mac_events.CAPS_LOCK in keys:
+        return "macOS reports Caps Lock as locked, not as held. Pick another key."
+    if shortcut_types_text(shortcut):
+        return (
+            "That types text. Add a modifier such as "
+            + ("Control or Option" if IS_MAC else "Ctrl or Alt")
+            + ", or pick a function key or a mouse button."
+        )
+    return None
+
+
 def describe_shortcut(shortcut: str, device: str) -> str:
     """Human-readable shortcut, e.g. "Control + Option" or "F8 on Keychron Link Keyboard"."""
     name = " + ".join(describe_key(k) for k in shortcut_keys(shortcut))
@@ -125,6 +159,7 @@ if IS_MAC:
 
     describe_key = mac_events.describe_key
     is_printable_key = mac_events.is_printable_key
+    is_known_key = mac_events.is_known_key
     SHIFT_KEYS = mac_events.SHIFT_KEYS
 
     class TriggerListener:
@@ -136,16 +171,25 @@ if IS_MAC:
         Shortcuts made only of modifiers are just watched.
         """
 
-        def __init__(self, settings: dict, on_down, on_up):
+        def __init__(self, settings: dict, on_down, on_up, on_lost):
             self.shortcut = settings["shortcut_key"]
             keys = shortcut_keys(self.shortcut)
             hideable = {k for k in keys if not mac_events.is_modifier(k)}
             self.combination = Combination(self.shortcut, on_down, on_up, hideable)
-            self._tap = mac_events.EventTap(self._handle, can_hide=bool(hideable))
+            self.on_lost = on_lost
+            self._tap = mac_events.EventTap(
+                self._handle, can_hide=bool(hideable), on_interrupted=self._lost_track
+            )
+            self._lost_reported = False
 
         def _handle(self, name: str, pressed: bool, repeat: bool) -> bool:
             """Feed one event to the shortcut; True hides it from other apps."""
             return self.combination.feed(name, pressed, repeat)
+
+        def _lost_track(self) -> None:
+            """Events were missed, perhaps a release: every key counts as up from here."""
+            self.combination.reset()
+            self.on_lost()
 
         def start(self) -> None:
             self._tap.start()
@@ -153,9 +197,34 @@ if IS_MAC:
 
         def stop(self) -> None:
             self._tap.stop()
+            self.combination.reset()
+            if not self._lost_reported:
+                self._lost_reported = True
+                self.on_lost()
 
-    def capture_next_input(timeout_s: float) -> tuple[str, str] | None:
-        """Record the keys held together, until the first is let go; return (shortcut, "")."""
+        def is_alive(self) -> bool:
+            """False once the event tap has stopped."""
+            return self._tap.is_alive()
+
+        def held_keys(self) -> frozenset[str]:
+            """Keys of the shortcut down right now."""
+            return frozenset(self.combination.held)
+
+        @property
+        def warning(self) -> str:
+            """Why the shortcut's key still reaches other apps, if it does."""
+            if self._tap.can_hide and not self._tap.hides:
+                return (
+                    "The shortcut's key also reaches the app you are in, because macOS "
+                    "only lets this app hide it with Accessibility turned on."
+                )
+            return ""
+
+    def capture_next_input(timeout_s: float, cancel=None) -> tuple[str, str] | None:
+        """Record the keys held together, until the first is let go; return (shortcut, "").
+
+        ``cancel`` is a threading.Event that ends the wait early.
+        """
         found: list[str] = []  # in press order
         done = threading.Event()
 
@@ -170,8 +239,13 @@ if IS_MAC:
 
         tap = mac_events.EventTap(take)
         tap.start()
-        done.wait(timeout_s)
-        tap.stop()
+        try:
+            end = time.monotonic() + timeout_s
+            while not done.wait(CAPTURE_POLL_S) and time.monotonic() < end:
+                if cancel is not None and cancel.is_set():
+                    return None
+        finally:
+            tap.stop()
         return (COMBINATION_SEPARATOR.join(found), "") if found else None
 
 else:
@@ -183,6 +257,9 @@ else:
         "This app cannot read any keyboard or mouse. Run `sudo usermod -aG input $USER`, "
         "then log out and back in."
     )
+
+    def is_known_key(key: str) -> bool:
+        return key in ecodes.ecodes
 
     def describe_key(key: str) -> str:
         return FRIENDLY_KEY_NAMES.get(key) or key.removeprefix("KEY_").upper()
@@ -241,11 +318,16 @@ else:
         the rest of the combination is held.
         """
 
-        def __init__(self, settings: dict, on_down, on_up):
+        warning = ""
+
+        def __init__(self, settings: dict, on_down, on_up, on_lost):
             self.key = settings["shortcut_key"]
             self.device_name = settings["shortcut_device"]
             self.grab = settings["grab"]
-            self.on_down, self.on_up = on_down, on_up
+            self.on_down, self.on_up, self.on_lost = on_down, on_up, on_lost
+            keys = shortcut_keys(self.key)
+            hideable = keys if len(keys) == 1 else [k for k in keys if k not in MODIFIER_KEYS]
+            self.combination = Combination(self.key, on_down, on_up, hideable)
             self._thread: threading.Thread | None = None
             self._pipe_lock = threading.Lock()
             self._wake_read, self._wake_write = os.pipe()  # writing here stops the loop
@@ -321,36 +403,84 @@ else:
             """False once a device it reads from went away (unplugged, suspend)."""
             return self._thread is not None and self._thread.is_alive()
 
+        def held_keys(self) -> frozenset[str]:
+            """Keys of the shortcut down right now."""
+            return frozenset(self.combination.held)
+
         def _loop(self, key_names, selector, passthrough, resources) -> None:
-            keys = shortcut_keys(self.key)
-            hideable = keys if len(keys) == 1 else [k for k in keys if k not in MODIFIER_KEYS]
-            combination = Combination(self.key, self.on_down, self.on_up, hideable)
+            replayed: dict[int, set[int]] = {fd: set() for fd in passthrough}  # keys down per twin
+            resyncing: set[int] = set()  # devices whose events are being discarded
             try:
                 with resources:
-                    while True:
-                        for selected, _ in selector.select():
-                            if selected.fileobj == self._wake_read:
-                                return
-                            device = selected.fileobj
-                            for event in device.read():
-                                if event.type == ecodes.EV_KEY and event.code in key_names:
-                                    # event.value: 1 = press, 0 = release, 2 = auto-repeat
-                                    hide = combination.feed(
-                                        key_names[event.code], event.value != 0, event.value == 2
-                                    )
-                                    if hide:
-                                        continue
-                                if device.fd in passthrough:
-                                    passthrough[device.fd].write_event(event)
+                    try:
+                        self._read_events(key_names, selector, passthrough, replayed, resyncing)
+                    finally:
+                        # Before the twins close: nothing stays logically held in other apps.
+                        for fd, twin in passthrough.items():
+                            _release_keys(twin, replayed[fd])
             except OSError as error:
                 log.warning("input device stopped: %s", error)
+            finally:
+                self.combination.reset()
+                self.on_lost()
 
-    def capture_next_input(timeout_s: float) -> tuple[str, str] | None:
+        def _read_events(self, key_names, selector, passthrough, replayed, resyncing) -> None:
+            while True:
+                for selected, _ in selector.select():
+                    if selected.fileobj == self._wake_read:
+                        return
+                    device = selected.fileobj
+                    for event in device.read():
+                        if event.type == ecodes.EV_SYN and event.code == ecodes.SYN_DROPPED:
+                            # The kernel's buffer overflowed: key events were lost, so a
+                            # release may be among them. Give up on this gesture, and
+                            # (kernel docs) ignore everything up to the next SYN_REPORT.
+                            log.warning("input events were dropped; cancelling the shortcut")
+                            resyncing.add(device.fd)
+                            self.combination.reset()
+                            if device.fd in passthrough:
+                                held = set(device.active_keys())
+                                twin = passthrough[device.fd]
+                                _release_keys(twin, replayed[device.fd] - held)
+                                replayed[device.fd] &= held
+                            self.on_lost()
+                            continue
+                        if device.fd in resyncing:
+                            if event.type == ecodes.EV_SYN and event.code == ecodes.SYN_REPORT:
+                                resyncing.discard(device.fd)
+                            continue
+                        if event.type == ecodes.EV_KEY and event.code in key_names:
+                            # event.value: 1 = press, 0 = release, 2 = auto-repeat
+                            hide = self.combination.feed(
+                                key_names[event.code], event.value != 0, event.value == 2
+                            )
+                            if hide:
+                                continue
+                        if device.fd in passthrough:
+                            passthrough[device.fd].write_event(event)
+                            if event.type == ecodes.EV_KEY:
+                                if event.value == 0:
+                                    replayed[device.fd].discard(event.code)
+                                else:
+                                    replayed[device.fd].add(event.code)
+
+    def _release_keys(twin, codes) -> None:
+        """Let go of keys on a virtual device; it may already be closing, so failures are logged."""
+        try:
+            for code in codes:
+                twin.write(ecodes.EV_KEY, code, 0)
+            if codes:
+                twin.syn()
+        except OSError as error:
+            log.warning("could not release replayed keys: %s", error)
+
+    def capture_next_input(timeout_s: float, cancel=None) -> tuple[str, str] | None:
         """Record the keys held together, until the first is let go; return (shortcut, device).
 
         The device name is set only when every key came from the same device.
         Left and right mouse buttons are skipped (you need them to click around),
-        and so are touchpads' internal "finger" codes.
+        and so are touchpads' internal "finger" codes. ``cancel`` is a
+        threading.Event that ends the wait early.
         """
         skip = {
             ecodes.BTN_LEFT,
@@ -379,7 +509,9 @@ else:
 
             end = time.monotonic() + timeout_s
             while (remaining := end - time.monotonic()) > 0:
-                for selected, _ in selector.select(timeout=remaining):
+                if cancel is not None and cancel.is_set():
+                    return None
+                for selected, _ in selector.select(timeout=min(remaining, CAPTURE_POLL_S)):
                     for event in selected.fileobj.read():
                         if event.type != ecodes.EV_KEY or event.code in skip:
                             continue

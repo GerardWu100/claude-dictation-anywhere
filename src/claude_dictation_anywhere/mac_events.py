@@ -19,6 +19,7 @@ starts this program (Terminal, iTerm, ...):
 """
 
 import functools
+import logging
 import os
 import re
 import subprocess
@@ -30,8 +31,13 @@ import AVFoundation
 import Quartz
 from AppKit import NSWorkspace
 
+log = logging.getLogger(__name__)
+
 TAP_START_TIMEOUT_S = 2
 TAP_STOP_TIMEOUT_S = 2
+# The tap thread wakes this often to notice stop(). CFRunLoopStop is not enough:
+# it does nothing to a run loop that has not started running yet.
+TAP_RUN_SLICE_S = 0.25
 # Pause after each typed character; some apps drop keys that arrive faster.
 TYPE_KEY_DELAY_S = 0.002
 # kVK_ANSI_V: the V position on a US layout, used for Cmd+V.
@@ -83,6 +89,9 @@ MODIFIER_FLAG_BITS = {
     63: Quartz.kCGEventFlagMaskSecondaryFn,
     57: Quartz.kCGEventFlagMaskAlphaShift,  # Caps Lock: on while locked
 }  # fmt: skip
+# Its flag says "locked", not "held": it stays on after the key is let go, so it
+# cannot be held to talk, and a press and release do not come as a pair.
+CAPS_LOCK = "key:57"
 MOUSE_BUTTON_NAMES = {
     2: "Mouse middle button",
     3: "Mouse back button",
@@ -114,6 +123,12 @@ def is_printable_key(key: str) -> bool:
     """True for keys that would also type into the focused app (letters, digits, Space...)."""
     kind, _, number = key.partition(":")
     return kind == "key" and number.isdigit() and int(number) not in NAMED_KEYS
+
+
+def is_known_key(key: str) -> bool:
+    """True for "key:<number>" and "mouse:<number>"."""
+    kind, _, number = key.partition(":")
+    return kind in ("key", "mouse") and number.isdigit()
 
 
 def is_modifier(key: str) -> bool:
@@ -191,78 +206,122 @@ class PermissionMissing(PermissionError):
         self.permission = permission
 
 
+class TapStartTimeout(OSError):
+    """The event tap did not start in time. Not a permission problem; a later retry may work."""
+
+
+# macOS shows each permission prompt once per run; asking again from a retry loop is pointless.
+_asked_permissions: set[str] = set()
+
+
+def _ask_once(permission: str, request) -> None:
+    if permission not in _asked_permissions:
+        _asked_permissions.add(permission)
+        request()
+
+
 class EventTap:
     """A Quartz event tap on its own thread; calls ``handle(name, pressed, repeat)``.
 
     Events reach the focused app unchanged, except with ``can_hide`` when
     ``handle`` returns True: that event is then dropped. Hiding needs an active
-    tap, which needs Accessibility; without it the tap only listens. Listen-only
-    taps cannot slow down typing, so use ``can_hide`` only when needed.
+    tap, which needs Accessibility; without it the tap only listens, and
+    ``hides`` stays False. Listen-only taps cannot slow down typing, so use
+    ``can_hide`` only when needed. ``on_interrupted`` runs if macOS switched the tap
+    off, because events were missed.
+
+    A start that fails or times out is cancelled for good: the thread cannot go
+    on to create a tap afterwards, so at most one tap is ever active.
 
     Raises
     ------
     PermissionError
         From ``start()`` if macOS refuses Input Monitoring (asking once first).
+    TapStartTimeout
+        From ``start()`` if the thread did not get a tap ready in time.
     """
 
-    def __init__(self, handle, can_hide: bool = False):
+    def __init__(self, handle, can_hide: bool = False, on_interrupted=None):
         self.handle = handle
         self.can_hide = can_hide
+        self.on_interrupted = on_interrupted
+        self.hides = False
         self._tap = None
-        self._loop = None
         self._thread: threading.Thread | None = None
         self._ready = threading.Event()
+        self._stop = threading.Event()
 
     def start(self) -> None:
         if not Quartz.CGPreflightListenEventAccess():
-            Quartz.CGRequestListenEventAccess()  # adds the app to the list, off by default
+            # Adds the app to the list, off by default.
+            _ask_once("Input Monitoring", Quartz.CGRequestListenEventAccess)
             raise PermissionMissing("Input Monitoring")
         self._thread = threading.Thread(target=self._run, daemon=True, name="event-tap")
         self._thread.start()
-        self._ready.wait(TAP_START_TIMEOUT_S)
-        if self._loop is None:
+        if not self._ready.wait(TAP_START_TIMEOUT_S):
+            self.stop()
+            raise TapStartTimeout("The shortcut listener did not start in time.")
+        if self._tap is None:
+            self.stop()
             raise PermissionMissing("Input Monitoring")
 
     def stop(self) -> None:
-        if self._loop is not None:
-            Quartz.CFRunLoopStop(self._loop)
-        if self._thread:
+        self._stop.set()
+        if self._thread and self._thread is not threading.current_thread():
             self._thread.join(TAP_STOP_TIMEOUT_S)
+
+    def is_alive(self) -> bool:
+        """False once the tap has stopped, by ``stop()`` or by failing."""
+        return self._thread is not None and self._thread.is_alive()
 
     def _run(self) -> None:
         mask = 0
         for event_type in KEY_EVENTS + MOUSE_EVENTS:
             mask |= Quartz.CGEventMaskBit(event_type)
-        self._tap = Quartz.CGEventTapCreate(
+        hides = self.can_hide and can_type()
+        tap = Quartz.CGEventTapCreate(
             Quartz.kCGSessionEventTap,
             Quartz.kCGHeadInsertEventTap,
-            Quartz.kCGEventTapOptionDefault
-            if self.can_hide and can_type()
-            else Quartz.kCGEventTapOptionListenOnly,
+            Quartz.kCGEventTapOptionDefault if hides else Quartz.kCGEventTapOptionListenOnly,
             mask,
             self._callback,
             None,
         )
-        if self._tap is None:  # no permission after all
+        if tap is None:  # no permission after all
             self._ready.set()
             return
-        source = Quartz.CFMachPortCreateRunLoopSource(None, self._tap, 0)
+        source = None
         loop = Quartz.CFRunLoopGetCurrent()
-        Quartz.CFRunLoopAddSource(loop, source, Quartz.kCFRunLoopCommonModes)
-        Quartz.CGEventTapEnable(self._tap, True)
-        self._loop = loop
-        self._ready.set()
-        Quartz.CFRunLoopRun()  # until stop()
-        Quartz.CFMachPortInvalidate(self._tap)
+        try:
+            if self._stop.is_set():  # the start timed out while the tap was being made
+                return
+            source = Quartz.CFMachPortCreateRunLoopSource(None, tap, 0)
+            Quartz.CFRunLoopAddSource(loop, source, Quartz.kCFRunLoopCommonModes)
+            Quartz.CGEventTapEnable(tap, True)
+            self.hides, self._tap = hides, tap
+            self._ready.set()
+            while not self._stop.is_set():
+                Quartz.CFRunLoopRunInMode(Quartz.kCFRunLoopDefaultMode, TAP_RUN_SLICE_S, False)
+        finally:
+            if source is not None:
+                Quartz.CFRunLoopRemoveSource(loop, source, Quartz.kCFRunLoopCommonModes)
+            Quartz.CFMachPortInvalidate(tap)
 
     def _callback(self, _proxy, event_type, event, _refcon):
         if event_type in TAP_DISABLED_EVENTS:
-            # macOS switches a tap off when a callback is slow; switch it back on.
-            Quartz.CGEventTapEnable(self._tap, True)
+            # macOS switches a tap off when a callback is slow; switch it back on. Events
+            # went missing meanwhile, perhaps the shortcut's release.
+            if self._tap is not None:
+                Quartz.CGEventTapEnable(self._tap, True)
+            if self.on_interrupted is not None:
+                self.on_interrupted()
             return event
-        found = event_input(event_type, event)
-        if found and self.handle(*found):
-            return None  # hidden from every app
+        try:
+            found = event_input(event_type, event)
+            if found and self.handle(*found):
+                return None  # hidden from every app
+        except Exception:  # a failure here must never swallow the user's typing
+            log.exception("shortcut handler failed")
         return event
 
 
@@ -307,7 +366,7 @@ def missing_permissions(needs_typing: bool) -> list[str]:
 
 def request_typing_permission() -> None:
     """Ask macOS to add this app under Accessibility (shows the system prompt once)."""
-    Quartz.CGRequestPostEventAccess()
+    _ask_once("Accessibility", Quartz.CGRequestPostEventAccess)
 
 
 def frontmost_app_pid() -> int | None:
@@ -327,11 +386,29 @@ def _post_key(key_code: int, flags: int, text: str = "") -> None:
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
 
-def type_text(text: str) -> None:
-    """Type ``text`` one character at a time as Unicode, so any character and layout works."""
-    for char in text:
+def type_text(text: str, interrupted=None, check_every: int = 1) -> int:
+    """Type ``text`` one character at a time as Unicode, so any character and layout works.
+
+    Parameters
+    ----------
+    text : str
+        What to type.
+    interrupted : callable or None
+        Asked before the first character and every ``check_every`` characters; True stops.
+    check_every : int
+        Characters between checks.
+
+    Returns
+    -------
+    int
+        Characters typed; fewer than ``len(text)`` if interrupted.
+    """
+    for index, char in enumerate(text):
+        if interrupted is not None and index % check_every == 0 and interrupted():
+            return index
         _post_key(0, 0, char)
         time.sleep(TYPE_KEY_DELAY_S)
+    return len(text)
 
 
 def press_paste() -> None:
