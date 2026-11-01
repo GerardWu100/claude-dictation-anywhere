@@ -11,6 +11,9 @@ What the settings promise:
                             failure; the text waits on the settings page instead.
                             Only "paste" mode uses the clipboard regardless, because
                             pasting is how it works; the settings page says so.
+    Linux "type" mode       ydotool skips what a US keyboard cannot type and still reports
+                            success, so text with other characters is refused whole and
+                            waits on the settings page, instead of arriving with holes.
     target app              On macOS the app in front at release is compared with
                             the app in front just before inserting, and every
                             TYPE_FOCUS_CHECK_CHARS characters while typing. Only the
@@ -26,6 +29,7 @@ again would duplicate it.
 import logging
 import os
 import shutil
+import stat
 import subprocess
 import time
 from dataclasses import dataclass
@@ -72,6 +76,7 @@ TYPEABLE_REPLACEMENTS = str.maketrans(
         "—": "-",
         "…": "...",
         "\u00a0": " ",
+        "\t": " ",  # a typed Tab moves the focus out of the text field
     }
 )
 
@@ -162,6 +167,16 @@ def without_line_breaks(text: str) -> str:
     return " ".join(text.splitlines())
 
 
+def ydotool_socket_missing() -> bool:
+    """True if ydotoold is not listening where ydotool will look for it."""
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    default = f"{runtime}/.ydotool_socket" if runtime else "/tmp/.ydotool_socket"
+    try:
+        return not stat.S_ISSOCK(os.stat(os.environ.get("YDOTOOL_SOCKET", default)).st_mode)
+    except OSError:
+        return True
+
+
 def clipboard_command() -> list[str] | None:
     """The command that reads text on stdin into the clipboard, or None if none is installed."""
     if IS_MAC:
@@ -194,8 +209,19 @@ def setup_warnings(settings: dict) -> list[dict]:
             "Copying to the clipboard needs wl-clipboard (Wayland) or xclip (X11). "
             "Arch: sudo pacman -S wl-clipboard   Debian/Ubuntu: sudo apt install wl-clipboard"
         )
-    if settings["output"] != "none" and not shutil.which("ydotool"):
-        warnings.append("Typing and pasting need ydotool with its ydotoold service running.")
+    if settings["output"] != "none":
+        if not shutil.which("ydotool"):
+            warnings.append("Typing and pasting need ydotool with its ydotoold service running.")
+        elif ydotool_socket_missing():
+            warnings.append(
+                "ydotoold is not running, so text cannot be typed or pasted. "
+                "Start it: systemctl --user enable --now ydotool"
+            )
+    if settings["output"] == "type" and settings["language"] not in ("", "en"):
+        warnings.append(
+            "Typing on Linux only enters characters on a US keyboard, so text with accents or "
+            "other alphabets waits on this page. Choose Paste for this language."
+        )
     return [{"text": warning, "permission": None} for warning in warnings]
 
 
@@ -243,12 +269,19 @@ def _paste_linux(text: str, cancel) -> None:
 
 
 def _type_linux(text: str, cancel) -> None:
+    typed = make_typeable(without_line_breaks(text))
+    if not (typed.isascii() and typed.isprintable()):
+        raise InsertionFailed(
+            "it has characters Linux typing cannot enter, such as accents; choose Paste",
+            uncertain=False,
+        )
     try:
         run_helper(["ydotool", "key", *YDOTOOL_WAKE_KEY], None, HELPER_TIMEOUT_S, cancel)
     except (OSError, subprocess.SubprocessError, HelperTimeout, HelperCancelled) as error:
-        raise InsertionFailed("ydotool could not start typing", uncertain=False) from error
+        raise InsertionFailed(
+            "ydotool could not start typing; check that ydotoold is running", uncertain=False
+        ) from error
     time.sleep(WAKE_BEFORE_TYPING_S)
-    typed = make_typeable(without_line_breaks(text))
     command = ["ydotool", "type", "--key-delay", str(YDOTOOL_KEY_DELAY_MS),
                "--key-hold", str(YDOTOOL_KEY_HOLD_MS), "--escape", "0", "--file", "-"]  # fmt: skip
     try:

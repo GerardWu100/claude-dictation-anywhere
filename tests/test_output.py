@@ -1,9 +1,13 @@
 """Delivery: deadlines, the clipboard promise, and never typing twice. Helpers are real or fake programs."""
 
+import os
+import socket
 import subprocess
+import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from claude_dictation_anywhere import output, settings
@@ -179,6 +183,22 @@ class LinuxInsertTest(unittest.TestCase):
         output.insert_text("x" * 5000, "type")
         self.assertGreater(self.timeout, short + 50)
 
+    def test_a_tab_is_typed_as_a_space_so_it_cannot_move_the_focus(self):
+        output.insert_text("one\ttwo", "type")
+        self.assertEqual(self.stdin[-1], b"one two")
+
+    def test_characters_ydotool_would_silently_skip_refuse_the_whole_text(self):
+        # Measured on ydotool 1.0.4: "café" exits 0 and types "caf" plus a stray Shift.
+        for text in ("café", "日本語", "x\x07y"):
+            with self.subTest(text), self.assertRaises(output.InsertionFailed) as caught:
+                output.insert_text(text, "type")
+            self.assertFalse(caught.exception.uncertain)
+        self.assertEqual(self.commands, [])  # nothing was pressed, not even the wake key
+
+    def test_paste_takes_any_characters(self):
+        output.insert_text("café 日本語", "paste")
+        self.assertEqual(self.stdin[0], "café 日本語".encode())
+
     def test_text_never_appears_in_command_arguments(self):
         output.insert_text("private words", "type")
         output.insert_text("private words", "paste")
@@ -213,6 +233,48 @@ class LinuxInsertTest(unittest.TestCase):
     def test_paste_keeps_line_breaks(self):
         output.insert_text("one\ntwo", "paste")
         self.assertEqual(self.stdin[0], b"one\ntwo")
+
+
+@unittest.skipIf(output.IS_MAC, "Linux tools")
+class LinuxSetupWarningsTest(unittest.TestCase):
+    def warnings(self, *, which=True, socket_missing=False, **chosen):
+        current = {"output": "type", "copy_to_clipboard": False, "language": "", **chosen}
+        with (
+            patch.object(output.shutil, "which", return_value="/usr/bin/x" if which else None),
+            patch.object(output, "ydotool_socket_missing", return_value=socket_missing),
+        ):
+            return [warning["text"] for warning in output.setup_warnings(current)]
+
+    def test_nothing_to_say_when_everything_is_there(self):
+        self.assertEqual(self.warnings(), [])
+
+    def test_missing_ydotool(self):
+        self.assertIn("need ydotool", self.warnings(which=False)[0])
+
+    def test_daemon_not_running_names_the_command(self):
+        self.assertIn("systemctl --user", self.warnings(socket_missing=True)[0])
+
+    def test_daemon_is_not_needed_when_text_is_not_inserted(self):
+        self.assertEqual(self.warnings(socket_missing=True, output="none"), [])
+
+    def test_typing_in_a_language_a_us_keyboard_cannot_type_suggests_paste(self):
+        self.assertIn("Paste", self.warnings(language="fr")[0])
+        self.assertEqual(self.warnings(language="fr", output="paste"), [])
+        self.assertEqual(self.warnings(language="en"), [])
+
+    def test_socket_lookup_follows_ydotool(self):
+        with tempfile.TemporaryDirectory() as folder:
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+            self.addCleanup(server.close)
+            server.bind(f"{folder}/.ydotool_socket")
+            with patch.dict(os.environ, {"XDG_RUNTIME_DIR": folder}):
+                os.environ.pop("YDOTOOL_SOCKET", None)
+                self.assertFalse(output.ydotool_socket_missing())
+            with patch.dict(os.environ, {"YDOTOOL_SOCKET": f"{folder}/other"}):
+                self.assertTrue(output.ydotool_socket_missing())
+            Path(f"{folder}/plain").touch()
+            with patch.dict(os.environ, {"YDOTOOL_SOCKET": f"{folder}/plain"}):
+                self.assertTrue(output.ydotool_socket_missing())
 
 
 class LineBreakTest(unittest.TestCase):
