@@ -1,6 +1,8 @@
 # Trail notes
 
 ## Decisions
+- 2026-11-01 No rewrite in another language. Measured on Linux with a session running: this app 46 MB PSS and the hidden Claude Code 229 MB, so at most about a tenth of the total could shrink; idle CPU is 0.00% and 0.05% of a core. Delays come from fixed waits and the network, not Python. To save memory, use idle shutdown.
+- 2026-11-01 The macOS app is an AppleScript applet from `osacompile`, kept open by a blocking `do shell script`, not a shell script as the bundle's program. Permissions go to the responsible app, which needs a real signed program in the bundle, and no compiler can be assumed on a user's Mac. It runs the installed command, so upgrades do not change it and permissions should survive them. Not a py2app-style bundle, because that would ship its own Python.
 - 2026-11-01 Linux "type" mode refuses a whole text with characters outside printable ASCII. Measured on ydotool 1.0.4: `café` exits 0 and types `caf` plus a stray Shift; `日本語` types only Shifts. Reporting success with holes is worse than a clear stop, and the text stays on the page and on the clipboard if copying is on. Falling back to paste was rejected because it would write to the clipboard against the setting.
 - 2026-11-01 Stop sending Spaces as soon as voice shows an error notice. Seen in Claude Code's own debug log: after a refused connection, the next Spaces start another attempt at once, so holding the key would retry a refusal for as long as it is held. One press now makes one attempt. A notice while "listening" still shows does not end the recording.
 - 2026-11-01 Use `claude auth status` to tell a lost sign-in from a network failure, because a signed-out Claude Code draws an ordinary prompt box. It runs only after the session flags were accepted: a version too old to know `auth` would take the words as a prompt, and that must never be sent. It is outside the terminal UI like `--version`, and only its JSON is read.
@@ -26,6 +28,7 @@
 
 ## Assumptions
 
+- 2026-11-01 The macOS app was built and tested only with stand-ins for `osacompile` and `codesign` on Linux. Unchecked on a real Mac: the AppleScript compiles; the permission prompts name this app; the microphone works through it; no Dock icon; the custom icon shows; a long blocking `do shell script` has no timeout; permissions survive `uv tool upgrade`. Check: `--install-launcher`, open it from Spotlight, dictate, quit from the menu bar.
 - 2026-11-01 `Voice: processing…` always shows between release and final text on later versions (one recording seen on 2.1.309). Check after a Claude Code update: `--test 5`, then look for "finished without seeing the processing state" in the log.
 - 2026-11-01 Linux hardware not yet tried with this code; `tests/test_live_linux.py` passes with virtual devices, and the user dictated with the real F8 on 2.1.314. Check on Arch: unplug the receiver mid-hold, a real side button with grab on in a browser, Ctrl+C with grab on.
 - 2026-11-01 X11 is unchecked: this machine runs GNOME on Wayland and has no xclip. Check on an X11 session: copy, paste, and type.

@@ -5,7 +5,7 @@ Usage
 claude-dictation-anywhere              # tray app (uv run claude-dictation-anywhere from the repo)
 claude-dictation-anywhere --open       # also open the settings page in your browser
 claude-dictation-anywhere --test 5     # record 5 s, print the text, nothing typed
-claude-dictation-anywhere --install-launcher    # Linux: show it in the desktop's app search
+claude-dictation-anywhere --install-launcher    # add it to the app search or Spotlight
 
 Threads: on Linux the tray icon runs its GTK loop in a background thread and the
 main thread waits, so Ctrl+C works; on macOS AppKit requires the tray on the
@@ -159,18 +159,17 @@ def main() -> None:
     parser.add_argument(
         "--test", type=test_duration, metavar="SECONDS", help="record this long, print the text"
     )
-    if not IS_MAC:
-        parser.add_argument(
-            "--install-launcher", action="store_true", help="show the app in the app search"
-        )
-        parser.add_argument(
-            "--uninstall-launcher", action="store_true", help="remove it from the app search"
-        )
+    parser.add_argument(
+        "--install-launcher", action="store_true", help="add it to the app search or Spotlight"
+    )
+    parser.add_argument(
+        "--uninstall-launcher", action="store_true", help="remove it from there again"
+    )
     args = parser.parse_args()
-    if getattr(args, "install_launcher", False):
+    if args.install_launcher:
         install_launcher()
         return
-    if getattr(args, "uninstall_launcher", False):
+    if args.uninstall_launcher:
         uninstall_launcher()
         return
 

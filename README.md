@@ -66,7 +66,7 @@ release ────────────► the transcript lands in Claude C
   - [`ydotool`](https://github.com/ReimuNotMoe/ydotool) with `ydotoold` running, to type the text.
   - `wl-clipboard` (Wayland) or `xclip` (X11), to copy it to the clipboard.
   - On GNOME, the AppIndicator extension for the tray icon.
-- **macOS:** in System Settings → Privacy & Security, turn on the app you start it from (Terminal, Ghostty, iTerm…) under:
+- **macOS:** in System Settings → Privacy & Security, turn on the app you start it from (its own app, or Terminal, Ghostty, iTerm…) under:
   - **Input Monitoring**, to read the shortcut.
   - **Accessibility**, to type or paste the text.
   - **Microphone**: the app asks on its first start. Answer that prompt; until you do, Claude Code freezes at "keep holding…".
@@ -82,13 +82,16 @@ claude-dictation-anywhere
 
 Or from a clone: `uv run claude-dictation-anywhere`.
 
-On Linux, add it to your desktop's app search (GNOME, KDE) once:
+Add it to your app search once, so you can start it without a terminal:
 
 ```bash
 claude-dictation-anywhere --install-launcher
 ```
 
-After that, start it from the app search like any other app. To get a newer version, run `uv tool upgrade claude-dictation-anywhere` and restart the app. Opening it again while it runs opens its settings page. `--uninstall-launcher` removes it.
+- **Linux (GNOME, KDE):** start it from the app search. Opening it again while it runs opens its settings page.
+- **macOS:** this builds `~/Applications/Claude Dictation Anywhere.app`, so Spotlight finds it. It has its own permissions, separate from your terminal's, so allow them once more. *The macOS app is new and has not yet been checked on a real Mac; starting from a terminal still works.*
+
+`--uninstall-launcher` removes it. To get a newer version, run `uv tool upgrade claude-dictation-anywhere` and restart the app.
 
 A microphone icon appears in the tray or menu bar, and the settings page opens in your browser the first time. Click the icon → **Settings and history…** to open it again.
 
