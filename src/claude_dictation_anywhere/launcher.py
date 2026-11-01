@@ -15,8 +15,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from .icon import draw_icon
 from .settings import APP_NAME
-from .tray import draw_icon
 
 LAUNCHER_ICON_SIZE = 256
 

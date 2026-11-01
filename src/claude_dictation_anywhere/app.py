@@ -10,11 +10,17 @@ claude-dictation-anywhere --install-launcher    # Linux: show it in the desktop'
 Threads: on Linux the tray icon runs its GTK loop in a background thread and the
 main thread waits, so Ctrl+C works; on macOS AppKit requires the tray on the
 main thread.
+
+The tray and the input listener load only when the tray app actually runs, so
+--help, --test, and --install-launcher work without a desktop session.
 """
 
 import argparse
 import fcntl
 import logging
+import math
+import os
+import re
 import signal
 import sys
 import threading
@@ -25,24 +31,79 @@ from .claude_session import (
     KEY_REPEAT_INTERVAL_S,
     ClaudeVoiceSession,
     DictationError,
+    PartialTranscript,
     find_claude,
+    remove_stale_handoffs,
 )
-from .controller import DictationController
 from .launcher import install_launcher, uninstall_launcher
-from .settings import IS_MAC, data_dir, load_settings, runtime_dir, settings_path
-from .tray import TrayIcon
+from .settings import (
+    IS_MAC,
+    PRIVATE_FILE_MODE,
+    UnsafeFolderError,
+    config_dir,
+    data_dir,
+    load_settings,
+    make_private_dir,
+    read_settings,
+    runtime_dir,
+    settings_path,
+    tighten_private_file,
+)
 from .web_ui import SettingsPage, open_in_browser, running_page_url_path
 
 log = logging.getLogger("claude_dictation_anywhere")
 
+LOG_NAME = re.compile(r"(\d{4}-\d{2}-\d{2})_(\d+)\.log")
+MAX_LOG_FILES = 30
+# Claude Code ends a recording at two minutes; --test stops just short of that.
+MAX_TEST_SECONDS = 115
+
 
 def next_log_path():
-    """logs/YYYY-MM-DD_NNN.log with the next free sequence number for today."""
-    log_dir = data_dir() / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    """logs/YYYY-MM-DD_NNN.log with the next free sequence number for today.
+
+    Files that do not follow the pattern are ignored. Only the newest
+    ``MAX_LOG_FILES`` logs are kept.
+    """
+    log_dir = make_private_dir(data_dir() / "logs")
+    logs = sorted(
+        (match.groups(), path)
+        for path in log_dir.iterdir()
+        if (match := LOG_NAME.fullmatch(path.name))
+    )
+    # Sorted by (date, sequence as text); widths are fixed until 999 logs a day.
+    for _, old_log in logs[: max(0, len(logs) - MAX_LOG_FILES + 1)]:
+        old_log.unlink(missing_ok=True)
     today = date.today().isoformat()
-    taken = [int(p.stem.rsplit("_", 1)[1]) for p in log_dir.glob(f"{today}_*.log")]
+    taken = [int(sequence) for (day, sequence), _ in logs if day == today]
     return log_dir / f"{today}_{max(taken, default=0) + 1:03d}.log"
+
+
+def open_private_log(path) -> logging.FileHandler:
+    """A log handler whose file only this user can read."""
+    os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, PRIVATE_FILE_MODE))
+    return logging.FileHandler(path)
+
+
+def tighten_existing_files() -> None:
+    """Make files written by earlier versions private; this app's own folders only."""
+    make_private_dir(config_dir())
+    make_private_dir(data_dir())
+    tighten_private_file(settings_path())
+    tighten_private_file(data_dir() / "history.jsonl")
+    logs = data_dir() / "logs"
+    if logs.is_dir():
+        for path in logs.iterdir():
+            if LOG_NAME.fullmatch(path.name):
+                tighten_private_file(path)
+
+
+def test_duration(value: str) -> float:
+    """--test value: finite, above zero, and within what one recording can last."""
+    seconds = float(value)
+    if not math.isfinite(seconds) or not 0 < seconds <= MAX_TEST_SECONDS:
+        raise argparse.ArgumentTypeError(f"must be above 0 and at most {MAX_TEST_SECONDS} seconds")
+    return seconds
 
 
 def hold_single_instance_lock(open_running_page: bool):
@@ -51,7 +112,8 @@ def hold_single_instance_lock(open_running_page: bool):
     With ``open_running_page`` (the app launcher passes --open), first open the
     running copy's settings page, so clicking the launcher always shows something.
     """
-    handle = open(runtime_dir() / "app.lock", "w")  # noqa: SIM115 - kept open to hold the lock
+    flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW
+    handle = os.open(runtime_dir() / "app.lock", flags, PRIVATE_FILE_MODE)  # kept open: the lock
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -81,6 +143,9 @@ def run_test(seconds: float) -> None:
         started = time.monotonic()
         text = session.collect_transcript()
         print(f"Transcript after {time.monotonic() - started:.1f} s: {text!r}")
+    except PartialTranscript as error:
+        print(f"Incomplete transcript: {error.text!r}")
+        sys.exit(str(error))
     except DictationError as error:
         sys.exit(str(error))
     finally:
@@ -91,7 +156,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Claude Code's /voice dictation in every app.")
     parser.add_argument("--open", action="store_true", help="open the settings page at start")
     parser.add_argument(
-        "--test", type=float, metavar="SECONDS", help="record this long, print the text"
+        "--test", type=test_duration, metavar="SECONDS", help="record this long, print the text"
     )
     if not IS_MAC:
         parser.add_argument(
@@ -111,21 +176,34 @@ def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[logging.FileHandler(next_log_path()), logging.StreamHandler()],
+        handlers=[open_private_log(next_log_path()), logging.StreamHandler()],
     )
-    lock = hold_single_instance_lock(args.open)  # noqa: F841 - held until exit
-    if args.test:
+    try:
+        lock = hold_single_instance_lock(args.open)  # noqa: F841 - held until exit
+    except UnsafeFolderError as error:
+        sys.exit(str(error))
+    tighten_existing_files()
+    remove_stale_handoffs()
+    if args.test is not None:
         run_test(args.test)
         return
+    run_app(args.open)
+
+
+def run_app(open_page: bool) -> None:
+    """The tray app; returns when it quits."""
+    from .controller import DictationController
+    from .tray import TrayIcon
 
     first_run = not settings_path().exists()
-    controller = DictationController(load_settings())
+    settings, settings_problems = read_settings()
+    controller = DictationController(settings, settings_problems)
     page = SettingsPage(controller)
     page.start()
     stopped = threading.Event()
     tray = TrayIcon(controller, open_settings=page.open, quit_app=stopped.set)
     controller.start()
-    if args.open or first_run:
+    if open_page or first_run:
         page.open()
 
     signal.signal(signal.SIGTERM, lambda *_: stopped.set())
@@ -148,9 +226,11 @@ def main() -> None:
     finally:
         # A second Ctrl+C while the hidden session shuts down would leave it running.
         signal.signal(signal.SIGINT, signal.SIG_IGN)
-        tray.stop()
-        controller.shutdown()
-        page.stop()
+        for cleanup in (tray.stop, controller.shutdown, page.stop):
+            try:  # one failure must not skip the rest, above all the speakers and Claude Code
+                cleanup()
+            except Exception:
+                log.exception("cleanup failed")
         log.info("quit")
 
 
