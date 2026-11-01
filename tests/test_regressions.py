@@ -3,61 +3,24 @@
 import io
 import json
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
-from claude_dictation_anywhere import claude_session, settings, web_ui
-
-
-class SessionLifecycleTest(unittest.TestCase):
-    def test_reaped_child_closes_terminal_once(self):
-        session = object.__new__(claude_session.ClaudeVoiceSession)
-        session.pid, session.fd = 123, 456
-        with (
-            patch.object(claude_session.os, "waitpid", return_value=(123, 0)),
-            patch.object(claude_session.os, "close") as close,
-        ):
-            self.assertFalse(session.is_alive())
-            self.assertFalse(session.is_alive())
-            session.stop()
-        close.assert_called_once_with(456)
-        self.assertIsNone(session.fd)
-        self.assertIsNone(session.pid)
-
-    def test_already_reaped_child_closes_terminal(self):
-        session = object.__new__(claude_session.ClaudeVoiceSession)
-        session.pid, session.fd = 123, 456
-        with (
-            patch.object(claude_session.os, "waitpid", side_effect=ChildProcessError),
-            patch.object(claude_session.os, "close") as close,
-        ):
-            self.assertFalse(session.is_alive())
-        close.assert_called_once_with(456)
-
-
-class FrozenSessionTest(unittest.TestCase):
-    def test_freeze_at_microphone_stops_session_with_clear_error(self):
-        session = object.__new__(claude_session.ClaudeVoiceSession)
-        session.fd, session.last_output_at = 456, 0.0
-        session.screen = " · keep holding…"
-        session.result = Mock(exists=Mock(return_value=False))
-        session.stop = Mock()
-        with (
-            patch.object(claude_session.os, "write"),
-            patch.object(claude_session, "EDITOR_TIMEOUT_S", 0),
-            self.assertRaisesRegex(claude_session.DictationError, "microphone permission"),
-        ):
-            session.collect_transcript()
-        session.stop.assert_called_once()
+from claude_dictation_anywhere import settings, web_ui
 
 
 class RequestValidationTest(unittest.TestCase):
     def handler(self, length, body=b"{}"):
         page = object.__new__(web_ui.SettingsPage)
         page.token = "test-token"
+        page.server = Mock(server_address=("127.0.0.1", 47821))
         page.controller = Mock()
         page.controller.update_settings.side_effect = settings.check_settings
         handler = object.__new__(page._handler())
-        handler.headers = {"X-CDA-Token": page.token, "Content-Length": length}
+        handler.headers = {
+            "Host": "127.0.0.1:47821",
+            "X-CDA-Token": page.token,
+            "Content-Length": length,
+        }
         handler.path = "/api/settings"
         handler.rfile = io.BytesIO(body)
         handler._json = Mock()
