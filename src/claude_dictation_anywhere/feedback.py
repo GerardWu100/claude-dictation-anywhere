@@ -9,9 +9,11 @@ focus from the app the text is typed into:
             ignores clicks and shows on every Space, also over full-screen apps
 """
 
+import logging
 import re
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 from .settings import IS_MAC
@@ -19,6 +21,8 @@ from .settings import IS_MAC
 if IS_MAC:
     import AppKit
     from PyObjCTools.AppHelper import callAfter
+
+log = logging.getLogger(__name__)
 
 # gdbus prefix for calls to the desktop notification service (GNOME Shell and others).
 NOTIFICATIONS_DBUS = [
@@ -40,6 +44,8 @@ SOUNDS = (
 )
 SOUND_PLAYERS = ("afplay",) if IS_MAC else ("pw-play", "paplay")
 SOUND_WAIT_TIMEOUT_S = 2
+# A stuck notification service must not hold up the microphone or the speakers.
+NOTIFY_TIMEOUT_S = 2
 
 # macOS pill, in points.
 PILL_MAX_WIDTH = 520
@@ -55,28 +61,39 @@ class NotificationBanner:
     def __init__(self):
         self.available = bool(shutil.which("gdbus"))
         self.notification_id = 0  # 0 = none shown
+        self._lock = threading.Lock()  # the worker and the "listening" announcer both call this
 
     def show(self, title: str) -> None:
         if not self.available:
             return
-        result = subprocess.run(
-            [*NOTIFICATIONS_DBUS, "--method", "org.freedesktop.Notifications.Notify",
-             "Claude Dictation Anywhere", str(self.notification_id), "audio-input-microphone",
-             title, "", "[]", BANNER_HINTS, "0"],
-            capture_output=True, text=True, check=False,
-        )  # fmt: skip
-        match = re.search(r"uint32 (\d+)", result.stdout)
-        self.notification_id = int(match.group(1)) if match else 0
+        with self._lock:
+            try:
+                result = subprocess.run(
+                    [*NOTIFICATIONS_DBUS, "--method", "org.freedesktop.Notifications.Notify",
+                     "Claude Dictation Anywhere", str(self.notification_id),
+                     "audio-input-microphone", title, "", "[]", BANNER_HINTS, "0"],
+                    capture_output=True, text=True, check=False, timeout=NOTIFY_TIMEOUT_S,
+                )  # fmt: skip
+            except (OSError, subprocess.SubprocessError) as error:
+                log.warning("could not show the banner: %s", type(error).__name__)
+                return
+            match = re.search(r"uint32 (\d+)", result.stdout)
+            self.notification_id = int(match.group(1)) if match else 0
 
     def close(self) -> None:
-        if not self.notification_id:
-            return
-        subprocess.run(
-            [*NOTIFICATIONS_DBUS, "--method", "org.freedesktop.Notifications.CloseNotification",
-             str(self.notification_id)],
-            capture_output=True, check=False,
-        )  # fmt: skip
-        self.notification_id = 0
+        with self._lock:
+            if not self.notification_id:
+                return
+            try:
+                subprocess.run(
+                    [*NOTIFICATIONS_DBUS, "--method",
+                     "org.freedesktop.Notifications.CloseNotification",
+                     str(self.notification_id)],
+                    capture_output=True, check=False, timeout=NOTIFY_TIMEOUT_S,
+                )  # fmt: skip
+            except (OSError, subprocess.SubprocessError) as error:
+                log.warning("could not close the banner: %s", type(error).__name__)
+            self.notification_id = 0
 
 
 class PillBanner:
@@ -163,13 +180,34 @@ def _screen_under_mouse():
 Banner = PillBanner if IS_MAC else NotificationBanner
 
 
+def _finish_sound(sound: subprocess.Popen) -> None:
+    """Wait for the sound to end; kill a player that has hung."""
+    try:
+        sound.wait(timeout=SOUND_WAIT_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        log.warning("the sound player hung and was stopped")
+        sound.kill()
+        sound.wait()
+
+
 def play_sound(which: str, wait: bool = False) -> None:
-    """Play the "start" or "stop" sound; ``wait`` blocks until it ends (about 0.2 s)."""
+    """Play the "start" or "stop" sound; ``wait`` blocks until it ends (about 0.2 s).
+
+    Never raises and never blocks longer than ``SOUND_WAIT_TIMEOUT_S``; a sound is
+    not worth losing dictation over.
+    """
     path = SOUNDS[0] if which == "start" else SOUNDS[1]
     player = next((p for p in SOUND_PLAYERS if shutil.which(p)), None)
-    if player and Path(path).exists():
+    if not (player and Path(path).exists()):
+        return
+    try:
         sound = subprocess.Popen(
             [player, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
-        if wait:
-            sound.wait(timeout=SOUND_WAIT_TIMEOUT_S)
+    except OSError as error:
+        log.warning("could not play a sound: %s", type(error).__name__)
+        return
+    if wait:
+        _finish_sound(sound)
+    else:
+        threading.Thread(target=_finish_sound, args=(sound,), daemon=True, name="sound").start()
