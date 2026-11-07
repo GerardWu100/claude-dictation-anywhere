@@ -5,6 +5,7 @@ Routes (all JSON except the page itself):
     GET  /                    the page (index.html, with this run's token filled in)
     GET  /api/status          controller.status()
     POST /api/settings        body: {setting: value, ...}; replies with the new status
+    POST /api/settings/reset  put every setting back to its default
     POST /api/capture         start waiting for a new shortcut
     POST /api/history/clear   delete the saved history
     POST /api/recovery/clear  body {"id": n}: forget one transcript kept for recovery
@@ -16,6 +17,9 @@ any data is returned: a web page that points its own domain name at 127.0.0.1
 carries an ``Origin`` must come from this server too. Every /api request must
 carry the header ``X-CDA-Token`` with a random token that is only written into
 the page; an old tab from an earlier run gets ``code: "stale_token"``.
+
+Every /api route that replies with the status takes ``?history_page=N`` (1 = the
+newest transcripts), so the history tab stays on the page it shows.
 
 POST bodies must fit within MAX_BODY_BYTES; invalid lengths and non-object
 settings payloads receive HTTP 400 without applying settings. A failed save or
@@ -32,6 +36,7 @@ import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
+from urllib.parse import parse_qs, urlsplit
 
 from .settings import IS_MAC, runtime_dir, write_private_file
 
@@ -67,6 +72,12 @@ def open_in_browser(url: str) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+
+def requested_history_page(query: str) -> int:
+    """The ``history_page`` in a query string; 1 if missing or not a positive whole number."""
+    value = parse_qs(query).get("history_page", ["1"])[0]
+    return int(value) if value.isascii() and value.isdigit() and int(value) > 0 else 1
 
 
 class SettingsServer(ThreadingHTTPServer):
@@ -169,14 +180,18 @@ class SettingsPage:
                 )
                 return False
 
+            def _status(self) -> dict:
+                return page.controller.status(requested_history_page(urlsplit(self.path).query))
+
             def do_GET(self):
                 if not self._host_allowed():
                     return
-                if self.path == "/":
+                path = urlsplit(self.path).path
+                if path == "/":
                     self._reply(HTTPStatus.OK, page.page, "text/html; charset=utf-8")
-                elif self.path == "/api/status":
+                elif path == "/api/status":
                     if self._authorised():
-                        self._json(page.controller.status())
+                        self._json(self._status())
                 else:
                     self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
@@ -189,17 +204,20 @@ class SettingsPage:
                         raise ValueError(f"Content-Length must be 0-{MAX_BODY_BYTES}")
                     body = self.rfile.read(length) if length else b"{}"
                     data = json.loads(body or b"{}")
-                    if self.path == "/api/settings":
+                    path = urlsplit(self.path).path
+                    if path == "/api/settings":
                         page.controller.update_settings(data)
-                    elif self.path == "/api/capture":
+                    elif path == "/api/settings/reset":
+                        page.controller.reset_settings()
+                    elif path == "/api/capture":
                         page.controller.capture_shortcut()
-                    elif self.path == "/api/history/clear":
+                    elif path == "/api/history/clear":
                         page.controller.history.clear()
-                    elif self.path == "/api/recovery/clear":
+                    elif path == "/api/recovery/clear":
                         if not isinstance(data, dict):
                             raise ValueError("body must be a JSON object")
                         page.controller.clear_recovery(data.get("id"))
-                    elif self.path == "/api/open-privacy":
+                    elif path == "/api/open-privacy":
                         if not isinstance(data, dict):
                             raise ValueError("body must be a JSON object")
                         page.controller.open_privacy_settings(data.get("permission"))
@@ -226,6 +244,6 @@ class SettingsPage:
                         HTTPStatus.INTERNAL_SERVER_ERROR,
                     )
                     return
-                self._json(page.controller.status())
+                self._json(self._status())
 
         return Handler

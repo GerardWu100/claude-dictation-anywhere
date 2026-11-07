@@ -1,6 +1,6 @@
 [project]
 name = "claude-dictation-anywhere"
-version = "0.2.0"
+version = "0.3.0"
 description = "Hold a key, speak, and Claude Code's own /voice dictation types the words into any app"
 readme = "README.md"
 license = "MIT"

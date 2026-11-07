@@ -148,6 +148,19 @@ class ErrorRepliesTest(ServerCase):
         self.assertEqual(response.status, 200)
         self.controller.clear_recovery.assert_called_once_with(3)
 
+    def test_reset_reaches_the_controller_and_keeps_the_history_page(self):
+        response, _ = self.post("/api/settings/reset?history_page=3", b"")
+        self.assertEqual(response.status, 200)
+        self.controller.reset_settings.assert_called_once_with()
+        self.controller.status.assert_called_with(3)
+
+    def test_history_page_must_be_a_positive_whole_number(self):
+        for query, expected in [("history_page=4", 4), ("", 1), ("history_page=0", 1),
+                                ("history_page=-2", 1), ("history_page=x", 1),
+                                ("history_page=%C2%B2", 1)]:  # fmt: skip
+            with self.subTest(query):
+                self.assertEqual(web_ui.requested_history_page(query), expected)
+
     def test_oversized_body_is_refused_without_reading_it(self):
         connection = socket.create_connection(("127.0.0.1", self.port), timeout=5)
         self.addCleanup(connection.close)

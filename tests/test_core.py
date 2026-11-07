@@ -47,19 +47,19 @@ class HistoryTest(unittest.TestCase):
             log = history.History(Path(folder) / "history.jsonl", max_entries=3)
             for word in ("one", "two", "three", "four"):
                 log.add(word, 1.0)
-            self.assertEqual([e["text"] for e in log.recent(10)], ["four", "three", "two"])
+            self.assertEqual(
+                [e["text"] for e in log.page(1, 10)["entries"]], ["four", "three", "two"]
+            )
             log.clear()
-            self.assertEqual(log.recent(10), [])
+            self.assertEqual(log.page(1, 10)["entries"], [])
 
 
 class OutputAndShortcutTest(unittest.TestCase):
     @unittest.skipIf(settings.IS_MAC, "Linux key codes")
     def test_describe_shortcut(self):
-        self.assertEqual(
-            hotkeys.describe_shortcut("KEY_F8", "Keychron  Link  Keyboard"),
-            "F8 on Keychron Link Keyboard",
-        )
-        self.assertEqual(hotkeys.describe_shortcut("BTN_SIDE", ""), "Mouse back button")
+        self.assertEqual(hotkeys.describe_shortcut("KEY_F8"), "F8")
+        self.assertEqual(hotkeys.describe_shortcut("KEY_LEFTCTRL+KEY_U"), "Left Ctrl + U")
+        self.assertEqual(hotkeys.describe_shortcut("BTN_SIDE"), "Mouse back button")
 
     @unittest.skipIf(settings.IS_MAC, "Linux key codes")
     def test_printable_keys_are_refused_as_shortcuts(self):
@@ -133,9 +133,7 @@ class CombinationTest(unittest.TestCase):
 @unittest.skipUnless(settings.IS_MAC, "macOS key names")
 class MacShortcutTest(unittest.TestCase):
     def test_combination_names_and_text_check(self):
-        self.assertEqual(
-            hotkeys.describe_shortcut("key:59+key:58", ""), "Left Control + Left Option"
-        )
+        self.assertEqual(hotkeys.describe_shortcut("key:59+key:58"), "Left Control + Left Option")
         self.assertFalse(hotkeys.shortcut_types_text("key:59+key:58"))
         self.assertFalse(hotkeys.shortcut_types_text("key:59+key:2"))  # Control + D
         self.assertTrue(hotkeys.shortcut_types_text("key:56+key:2"))  # Shift + D

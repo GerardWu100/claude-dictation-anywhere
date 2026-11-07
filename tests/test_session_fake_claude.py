@@ -340,6 +340,13 @@ class StartupTest(FakeClaudeCase):
         self.assertEqual(self.keys(), b"\x1b[B\r")
         self.assertEqual(self.dictate(session), "ok")
 
+    def test_trust_dialog_that_ignores_the_first_keys_is_still_answered(self):
+        session = self.started(startup="trust", trust_deaf_s=0.6, transcript="ok")
+        keys = self.keys()
+        self.assertTrue(keys.endswith(b"\x1b[B\r"), keys)
+        self.assertEqual(keys.count(b"\r"), 1)
+        self.assertEqual(self.dictate(session), "ok")
+
     def test_unknown_menu_gets_no_key_at_all(self):
         with patch.object(claude_session, "STARTUP_TIMEOUT_S", 0.4):
             session = self.session(startup="menu")

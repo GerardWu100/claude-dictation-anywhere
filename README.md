@@ -93,7 +93,7 @@ claude-dictation-anywhere --install-launcher
 
 `--uninstall-launcher` removes it. To get a newer version, run `uv tool upgrade claude-dictation-anywhere` and restart the app.
 
-A microphone icon appears in the tray or menu bar, and the settings page opens in your browser the first time. Click the icon → **Settings and history…** to open it again.
+A microphone icon appears in the tray or menu bar, and the settings page opens in your browser the first time. Click the icon → **Settings and history…** to open it again. The page opens on the **History** tab; settings are on the **Settings** tab.
 
 | Tray icon colour | Meaning |
 |---|---|
@@ -107,19 +107,22 @@ A microphone icon appears in the tray or menu bar, and the settings page opens i
 
 ## Settings
 
-All of these are on the settings page:
+All of these are on the **Settings** tab of the page. **Reset to defaults** at the bottom puts every setting, the shortcut included, back to its default; the history is kept.
 
-- **Shortcut:** press **Change…**, then press any key or mouse button, or hold several keys together and let go (for example Control + Option). Function keys, modifiers, combinations, and mouse side or sniper buttons all work. A combination fires once all its keys are down and stops when you let go of any of them. Shortcuts that would type text are refused. On macOS the G in Command + Option + G does not reach the app you are in, and G pressed alone still types G. On Linux the same holds with the next setting on; with it off, the settings page warns that the key also reaches the app.
-- **Stop the shortcut doing its normal job** (Linux): needed for mouse side buttons, which otherwise also mean Back, and for the G in Ctrl + Alt + G. Modifiers in a combination keep working, so Ctrl + C is unaffected. On macOS this is always on for keys that are not modifiers.
+- **Shortcut:** press **Change…**, then press any key or mouse button, or hold several keys together and let go (for example Ctrl + U). Function keys, modifiers, combinations, and mouse side or sniper buttons all work. A combination fires once all its keys are down and stops when you let go of any of them. It works from any keyboard or mouse, and the keys of a combination may come from different ones (Ctrl on the keyboard, a side button on the mouse). Shortcuts that would type text are refused. The U in Ctrl + U does not reach the app you are in, and U pressed alone still types U.
+- **Hide the shortcut's key from other apps** (Linux, on by default): keeps the U in Ctrl + U, an F-key, or a mouse side button (which also means Back) from acting in the app you are in. Modifiers keep working, so Ctrl + C is unaffected, and a shortcut made only of modifiers (Right Ctrl) is never hidden. With it off, the settings page warns that the key also reaches the app. On macOS this is always on.
 - **Mode:** *Hold to talk*, or *Press to start, press to stop*. A press while the last recording is still transcribing is ignored, so wait for the blue icon to clear.
-- **Text:** type it, paste it, or don't insert it. Optionally also copy it to the clipboard. With copying off, nothing is written to the clipboard, not even after a failure; only paste mode uses it, because pasting works that way. Typed text has its line breaks and tabs replaced by spaces, because a typed line break is an Enter key and a typed tab moves the focus.
+- **Text:** paste it (default), type it, or don't insert it. Optionally also copy it to the clipboard.
+  - *Paste* puts the whole text in at once. It presses Cmd+V on macOS and Shift+Insert on Linux, which browsers, editors, and terminals all treat as paste; on Linux the text also goes on the primary selection, because some terminals paste that on Shift+Insert. If the focus is not in a text box, nothing happens.
+  - *Type* presses one key per character. In a text box that looks the same, but on a web page or player each letter can trigger one of its shortcuts. Typed text has its line breaks and tabs replaced by spaces, because a typed line break is an Enter key and a typed tab moves the focus.
+  - With copying off, nothing is written to the clipboard, not even after a failure; only paste mode uses it, because pasting works that way.
 - **Mute the speakers while recording:** on by default. Mutes the default output (your volume level is untouched) and unmutes when you release; if it was already muted, it stays muted. If you switch outputs while recording, the one that was muted is the one unmuted. If you press mute yourself while recording, it still unmutes at release.
 - **Pause shortcut** (tray menu): stops a recording at once and discards its text. Text already recorded is kept on the settings page instead of being typed.
 - **Language:** any of the 20 languages Claude Code's dictation supports.
 - **Memory:**
   - The hidden Claude Code uses about 250 MB. Turn off *Start Claude Code with the app* and it only starts on your first press, adding about 2 seconds that once.
   - By default it keeps running, so every press records at once. You can have it quit after a set number of idle minutes instead; the next press then waits 1–3 seconds for it to restart, and words spoken during that wait are lost.
-- **History:** recent transcripts, with copy buttons. The history is stored only on your computer, and you can turn it off.
+- **History** (its own tab): the last 500 transcripts, newest first, 20 per page, each with its date, time, recording length, and a Copy button. The history is stored only on your computer, and you can turn it off.
 
 Command-line check without any shortcut: `claude-dictation-anywhere --test 5` records 5 seconds and prints the text.
 
@@ -136,7 +139,7 @@ The settings page is served only on `127.0.0.1`, behind a random token for each 
 
 - It depends on Claude Code's screen and keys. A Claude Code update can break it until this app is updated; see Compatibility.
 - One recording can last at most about 2 minutes (Claude Code's own limit).
-- Linux "type" mode types only characters on a US keyboard. Text with accents or other alphabets is not typed at all, rather than typed with letters missing: it waits on the settings page, and on the clipboard if copying is on. Use "paste" mode for those, and for non-US layouts. Paste presses Ctrl+V, which most Linux terminals do not treat as paste.
+- Linux "type" mode types only characters on a US keyboard. Text with accents or other alphabets is not typed at all, rather than typed with letters missing: it waits on the settings page, and on the clipboard if copying is on. Use "paste" mode (the default) for those, and for non-US layouts.
 - The target is the app in front when you release. On macOS, if another app is in front when the text is ready, or you switch while it types, typing stops; another window or tab of the same app is not noticed. On Linux the front window cannot be read on Wayland, so the text goes into whatever has focus then.
 - macOS: Caps Lock cannot be the shortcut, because macOS reports it as locked, not as held. Hiding a shortcut's key from other apps needs Accessibility, even with text insertion off; the settings page warns if it is missing.
 

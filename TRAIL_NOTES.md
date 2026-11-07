@@ -1,6 +1,10 @@
 # Trail notes
 
 ## Decisions
+- 2026-11-07 Default output is "paste", and Linux paste presses Shift+Insert with the text on both the clipboard and the primary selection. Typing key by key fired page shortcuts when the focus was not in a text box (user report). Ctrl+V is not paste in Linux terminals; Shift+Insert is paste almost everywhere, but VTE terminals (GNOME Console), kitty, Alacritty, WezTerm, and VS Code's terminal paste the primary selection on it, hence both. Primary failing is logged, not fatal.
+- 2026-11-07 Shortcuts no longer remember a device (`shortcut_device` removed): the user wanted any keyboard or mouse to work, and the label "on Keychron Link Keyboard" confused them. Combination keys may come from different devices. Live tests now use KEY_MACRO1 and BTN_TRIGGER_HAPPY5, which no real device here has, so they never grab real devices (Ctrl combinations still read real keyboards; do not type during a run).
+- 2026-11-07 Linux "grab" (hide the shortcut's main key) is on by default, as macOS always does; the user read Ctrl+U also acting in the app as "combinations do not work on Linux". Only devices that have a hideable key are grabbed, and modifier-only shortcuts are never grabbed, so Right Ctrl alone keeps working as Ctrl.
+- 2026-11-07 The page opens on a History tab (20 per page, server-side paging through `?history_page=N` on every status reply) with Settings on a second tab, chosen by the URL hash.
 - 2026-11-01 No rewrite in another language. Measured on Linux with a session running: this app 46 MB PSS and the hidden Claude Code 229 MB, so at most about a tenth of the total could shrink; idle CPU is 0.00% and 0.05% of a core. Delays come from fixed waits and the network, not Python. To save memory, use idle shutdown.
 - 2026-11-01 The macOS app is an AppleScript applet from `osacompile`, kept open by a blocking `do shell script`, not a shell script as the bundle's program. Permissions go to the responsible app, which needs a real signed program in the bundle, and no compiler can be assumed on a user's Mac. It runs the installed command, so upgrades do not change it and permissions should survive them. Not a py2app-style bundle, because that would ship its own Python.
 - 2026-11-01 Linux "type" mode refuses a whole text with characters outside printable ASCII. Measured on ydotool 1.0.4: `café` exits 0 and types `caf` plus a stray Shift; `日本語` types only Shifts. Reporting success with holes is worse than a clear stop, and the text stays on the page and on the clipboard if copying is on. Falling back to paste was rejected because it would write to the clipboard against the setting.
@@ -28,6 +32,8 @@
 
 ## Assumptions
 
+- 2026-11-07 Shift+Insert pastes in the user's real apps (Brave, GNOME Console, the Claude desktop app). Checked only that the right keys and both selections are sent, not in each app. Check: dictate once into each with output "paste".
+
 - 2026-11-01 The macOS app is built and started on a real Mac only with a stand-in program, not the real one. Unchecked: the permission prompts name this app; the microphone works through it; the custom icon looks right; quitting from the menu bar exits 0; permissions survive `uv tool upgrade`; logging out is not held up, because the applet is busy and cannot answer a quit request. Check: `--install-launcher`, open it from Spotlight, dictate, quit from the menu bar, log out with it running.
 - 2026-11-01 `Voice: processing…` always shows between release and final text on later versions (one recording seen on 2.1.309). Check after a Claude Code update: `--test 5`, then look for "finished without seeing the processing state" in the log.
 - 2026-11-01 Linux hardware not yet tried with this code; `tests/test_live_linux.py` passes with virtual devices, and the user dictated with the real F8 on 2.1.314. Check on Arch: unplug the receiver mid-hold, a real side button with grab on in a browser, Ctrl+C with grab on.
@@ -37,6 +43,8 @@
 - 2026-11-01 Linux: a shortcut device that disappears (unplug, suspend) is restarted on the next settings-page poll or within 30 s; whether evdev raises OSError on suspend/resume (rather than going silent) is unchecked. Check: suspend, resume, press the shortcut.
 
 ## Gotchas
+
+- 2026-11-07 Claude Code 2.1.318 draws the first-run trust dialog before it reads keys: an arrow sent at once is lost, and startup failed with "a screen this app does not recognise" in any new data folder (existing installs had already trusted theirs). The arrow now waits for a still screen and is resent; 4 of 4 fresh folders started with one arrow.
 
 - 2026-11-01 macOS app, measured with a stand-in program: opening it again while it runs does nothing, because macOS only reactivates the busy applet, so the settings page does not open as it does on Linux. Force-quitting the applet leaves the program running without it. A long run has no timeout (135 s, past AppleScript's 120 s default). No Dock icon (`lsappinfo` type UIElement).
 - 2026-11-01 The desktop launcher runs the `uv tool` copy, not this checkout, so a push changes nothing there until `uv tool upgrade claude-dictation-anywhere`. Check which code ran from the log's words, or from `direct_url.json` in that copy's `dist-info`.

@@ -34,12 +34,7 @@ class TrayIcon:
         menu = pystray.Menu(
             pystray.MenuItem(lambda _: STATE_TITLES.get(controller.state, ""), None, enabled=False),
             pystray.MenuItem(
-                lambda _: (
-                    "Shortcut: "
-                    + describe_shortcut(
-                        controller.settings["shortcut_key"], controller.settings["shortcut_device"]
-                    )
-                ),
+                lambda _: "Shortcut: " + describe_shortcut(controller.settings["shortcut_key"]),
                 None,
                 enabled=False,
             ),

@@ -234,6 +234,27 @@ class LinuxInsertTest(unittest.TestCase):
         output.insert_text("one\ntwo", "paste")
         self.assertEqual(self.stdin[0], b"one\ntwo")
 
+    def test_paste_fills_clipboard_and_primary_then_presses_shift_insert(self):
+        output.insert_text("hi", "paste")
+        self.assertEqual(
+            self.commands,
+            [
+                ["wl-copy"],
+                ["wl-copy", "--primary"],
+                ["ydotool", "key", "42:1", "110:1", "110:0", "42:0"],
+            ],
+        )
+        self.assertEqual(self.stdin[:2], [b"hi", b"hi"])
+
+    def test_paste_goes_on_without_a_primary_selection(self):
+        self.fail_on = "--primary"
+        with self.assertLogs("claude_dictation_anywhere.output", "WARNING"):
+            output.insert_text("hi", "paste")
+        self.assertEqual(self.commands[-1][:2], ["ydotool", "key"])
+
+    def test_paste_is_the_default_so_letters_cannot_fire_page_shortcuts(self):
+        self.assertEqual(settings.DEFAULT_SETTINGS["output"], "paste")
+
 
 @unittest.skipIf(output.IS_MAC, "Linux tools")
 class LinuxSetupWarningsTest(unittest.TestCase):

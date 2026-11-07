@@ -4,9 +4,10 @@ Skipped unless asked for, because they press virtual keys and briefly mute the s
 
     CDA_LIVE_LINUX=1 uv run python -m unittest tests.test_live_linux -v
 
-Nothing reaches the app in front. Virtual keys are F23 and F24 (no job on a normal
-desktop), and ydotool's virtual device is grabbed while it types, so the keys it
-sends arrive here instead. Do not type during the run: capturing a shortcut reads
+Nothing reaches the app in front. The shortcut is the Macro 1 key, which no real
+keyboard here has, so only the virtual devices are read or grabbed; the other
+virtual key is F23 (no job on a normal desktop). ydotool's virtual device is
+grabbed while it types, so the keys it sends arrive here instead. Do not type during the run: capturing a shortcut reads
 every keyboard. Claude Code is the offline stand-in in fake_claude.py, so there is
 no login, microphone, or network. Quit the real app first; only one copy can run.
 """
@@ -40,6 +41,8 @@ if LIVE:
 FAKE_CLAUDE = Path(__file__).with_name("fake_claude.py")
 DEVICE_NAME = "cda live check keyboard"
 MOUSE_NAME = "cda live check mouse"
+# The checks of key-by-key typing; paste is the default.
+TYPE_SETTINGS = dict(settings.DEFAULT_SETTINGS, output="type")
 WAIT_S = 10
 DEVICE_SETTLE_S = 0.3
 QUIET_READ_S = 0.4
@@ -84,7 +87,7 @@ class VirtualDevice:
     """A real input device, as far as the kernel and this app can tell."""
 
     def __init__(self, name=DEVICE_NAME, keys=None):
-        codes = keys or [ecodes.KEY_F23, ecodes.KEY_F24, ecodes.KEY_LEFTCTRL]
+        codes = keys or [ecodes.KEY_F23, ecodes.KEY_MACRO1, ecodes.KEY_LEFTCTRL]
         self.name = name
         self.ui = evdev.UInput({ecodes.EV_KEY: codes}, name=name)
         self.closed = False
@@ -141,13 +144,14 @@ class TypedKeys:
 
 
 class SavedClipboard:
-    """Puts back what the clipboard held; these checks must not cost you your copied text."""
+    """Puts back what the clipboard and primary selection held, so these checks cost no copied text."""
 
     def __enter__(self):
         types = subprocess.run(
             ["wl-paste", "--list-types"], capture_output=True, text=True, check=False
         ).stdout
         self.kind = types.split()[0] if types.split() else None
+        self.saved_primary = self.read_primary()
         self.saved = (
             subprocess.run(
                 ["wl-paste", "-n", "-t", self.kind], capture_output=True, check=False
@@ -162,7 +166,13 @@ class SavedClipboard:
             ["wl-paste", "-n"], capture_output=True, text=True, check=False
         ).stdout
 
+    def read_primary(self):
+        return subprocess.run(
+            ["wl-paste", "--primary", "-n"], capture_output=True, text=True, check=False
+        ).stdout
+
     def __exit__(self, *_):
+        subprocess.run(["wl-copy", "--primary"], input=self.saved_primary.encode(), check=False)
         if self.kind:
             subprocess.run(["wl-copy", "-t", self.kind], input=self.saved, check=False)
         else:
@@ -176,9 +186,9 @@ class LiveInputTest(unittest.TestCase):
         self.addCleanup(self.keyboard.close)
         self.down, self.up, self.lost = threading.Event(), threading.Event(), threading.Event()
 
-    def listener(self, shortcut="KEY_F24", device=DEVICE_NAME, grab=False, on_down=None):
+    def listener(self, shortcut="KEY_MACRO1", grab=False, on_down=None):
         listener = hotkeys.TriggerListener(
-            {"shortcut_key": shortcut, "shortcut_device": device, "grab": grab},
+            {"shortcut_key": shortcut, "grab": grab},
             on_down or self.down.set,
             self.up.set,
             self.lost.set,
@@ -189,27 +199,27 @@ class LiveInputTest(unittest.TestCase):
 
     def test_press_and_release_arrive_from_the_kernel(self):
         listener = self.listener()
-        self.keyboard.key(ecodes.KEY_F24, 1)
+        self.keyboard.key(ecodes.KEY_MACRO1, 1)
         self.assertTrue(self.down.wait(WAIT_S))
-        self.assertEqual(listener.held_keys(), {"KEY_F24"})
-        self.keyboard.key(ecodes.KEY_F24, 0)
+        self.assertEqual(listener.held_keys(), {"KEY_MACRO1"})
+        self.keyboard.key(ecodes.KEY_MACRO1, 0)
         self.assertTrue(self.up.wait(WAIT_S))
         self.assertEqual(listener.held_keys(), frozenset())
 
     def test_combination_fires_once_all_keys_are_down_and_ends_with_the_first_release(self):
-        self.listener("KEY_LEFTCTRL+KEY_F24")
-        self.keyboard.key(ecodes.KEY_F24, 1)
+        self.listener("KEY_LEFTCTRL+KEY_MACRO1")
+        self.keyboard.key(ecodes.KEY_MACRO1, 1)
         time.sleep(0.1)
         self.assertFalse(self.down.is_set())
         self.keyboard.key(ecodes.KEY_LEFTCTRL, 1)
         self.assertTrue(self.down.wait(WAIT_S))
         self.keyboard.key(ecodes.KEY_LEFTCTRL, 0)
         self.assertTrue(self.up.wait(WAIT_S))
-        self.keyboard.key(ecodes.KEY_F24, 0)
+        self.keyboard.key(ecodes.KEY_MACRO1, 0)
 
     def test_unplugging_mid_hold_reports_lost_and_no_release(self):
         listener = self.listener()
-        self.keyboard.key(ecodes.KEY_F24, 1)
+        self.keyboard.key(ecodes.KEY_MACRO1, 1)
         self.assertTrue(self.down.wait(WAIT_S))
         self.keyboard.close()
         self.assertTrue(self.lost.wait(WAIT_S))
@@ -218,10 +228,10 @@ class LiveInputTest(unittest.TestCase):
         self.assertEqual(listener.held_keys(), frozenset())
 
     def test_key_held_across_a_reconnect_is_not_a_new_press(self):
-        self.keyboard.key(ecodes.KEY_F24, 1)
+        self.keyboard.key(ecodes.KEY_MACRO1, 1)
         self.listener()
-        self.keyboard.key(ecodes.KEY_F24, 2)  # auto-repeat, then the release
-        self.keyboard.key(ecodes.KEY_F24, 0)
+        self.keyboard.key(ecodes.KEY_MACRO1, 2)  # auto-repeat, then the release
+        self.keyboard.key(ecodes.KEY_MACRO1, 0)
         time.sleep(0.2)
         self.assertFalse(self.down.is_set())
         self.assertFalse(self.up.is_set())
@@ -247,31 +257,31 @@ class LiveInputTest(unittest.TestCase):
     def test_grab_hides_the_shortcut_and_replays_every_other_key(self):
         self.listener(grab=True)
         twin = self.twin()
-        self.keyboard.key(ecodes.KEY_F24, 1)
+        self.keyboard.key(ecodes.KEY_MACRO1, 1)
         self.assertTrue(self.down.wait(WAIT_S))
-        self.keyboard.key(ecodes.KEY_F24, 0)
+        self.keyboard.key(ecodes.KEY_MACRO1, 0)
         self.keyboard.key(ecodes.KEY_F23, 1)
         self.keyboard.key(ecodes.KEY_F23, 0)
         self.assertEqual(self.replayed_presses(twin), [(ecodes.KEY_F23, 1), (ecodes.KEY_F23, 0)])
 
     def test_grabbed_combination_hides_its_key_and_keeps_the_modifier_working(self):
-        self.listener("KEY_LEFTCTRL+KEY_F24", grab=True)
+        self.listener("KEY_LEFTCTRL+KEY_MACRO1", grab=True)
         twin = self.twin()
-        self.keyboard.key(ecodes.KEY_F24, 1)  # alone: an ordinary key that reaches the app
-        self.keyboard.key(ecodes.KEY_F24, 0)
+        self.keyboard.key(ecodes.KEY_MACRO1, 1)  # alone: an ordinary key that reaches the app
+        self.keyboard.key(ecodes.KEY_MACRO1, 0)
         self.keyboard.key(ecodes.KEY_LEFTCTRL, 1)  # Ctrl + F23 still works as Ctrl + F23
         self.keyboard.key(ecodes.KEY_F23, 1)
         self.keyboard.key(ecodes.KEY_F23, 0)
-        self.keyboard.key(ecodes.KEY_F24, 1)  # now the shortcut: F24 is hidden
+        self.keyboard.key(ecodes.KEY_MACRO1, 1)  # now the shortcut: F24 is hidden
         self.assertTrue(self.down.wait(WAIT_S))
-        self.keyboard.key(ecodes.KEY_F24, 0)
+        self.keyboard.key(ecodes.KEY_MACRO1, 0)
         self.assertTrue(self.up.wait(WAIT_S))
         self.keyboard.key(ecodes.KEY_LEFTCTRL, 0)
         self.assertEqual(
             self.replayed_presses(twin),
             [
-                (ecodes.KEY_F24, 1),
-                (ecodes.KEY_F24, 0),
+                (ecodes.KEY_MACRO1, 1),
+                (ecodes.KEY_MACRO1, 0),
                 (ecodes.KEY_LEFTCTRL, 1),
                 (ecodes.KEY_F23, 1),
                 (ecodes.KEY_F23, 0),
@@ -280,13 +290,15 @@ class LiveInputTest(unittest.TestCase):
         )
 
     def test_grab_hides_a_mouse_side_button_so_it_cannot_mean_back(self):
-        mouse = VirtualDevice(MOUSE_NAME, [ecodes.BTN_LEFT, ecodes.BTN_SIDE])
+        # BTN_TRIGGER_HAPPY5 stands in for the side button: real mice here have BTN_SIDE,
+        # and the listener would take those over too.
+        mouse = VirtualDevice(MOUSE_NAME, [ecodes.BTN_LEFT, ecodes.BTN_TRIGGER_HAPPY5])
         self.addCleanup(mouse.close)
-        self.listener("BTN_SIDE", MOUSE_NAME, grab=True)
+        self.listener("BTN_TRIGGER_HAPPY5", grab=True)
         twin = self.twin()
-        mouse.key(ecodes.BTN_SIDE, 1)
+        mouse.key(ecodes.BTN_TRIGGER_HAPPY5, 1)
         self.assertTrue(self.down.wait(WAIT_S))
-        mouse.key(ecodes.BTN_SIDE, 0)
+        mouse.key(ecodes.BTN_TRIGGER_HAPPY5, 0)
         self.assertTrue(self.up.wait(WAIT_S))
         self.assertEqual(self.replayed_presses(twin), [])
 
@@ -309,26 +321,26 @@ class LiveInputTest(unittest.TestCase):
             can_read.wait(WAIT_S)
 
         listener = self.listener(grab=True, on_down=block_the_reader)
-        self.keyboard.key(ecodes.KEY_F24, 1)
+        self.keyboard.key(ecodes.KEY_MACRO1, 1)
         self.assertTrue(reading_blocked.wait(WAIT_S))
         for _ in range(2000):  # far more than the kernel keeps per device reader
-            self.keyboard.key(ecodes.KEY_F24, 2)
+            self.keyboard.key(ecodes.KEY_MACRO1, 2)
         can_read.set()
         self.assertTrue(self.lost.wait(WAIT_S), "the kernel reported no dropped events")
         self.assertTrue(listener.is_alive())
         self.assertFalse(self.up.is_set())
 
-    def test_capture_records_a_combination_with_its_device(self):
+    def test_capture_records_a_combination(self):
         found = []
         capture = threading.Thread(target=lambda: found.append(hotkeys.capture_next_input(WAIT_S)))
         capture.start()
         time.sleep(0.3)
         self.keyboard.key(ecodes.KEY_LEFTCTRL, 1)
-        self.keyboard.key(ecodes.KEY_F24, 1)
-        self.keyboard.key(ecodes.KEY_F24, 0)
+        self.keyboard.key(ecodes.KEY_MACRO1, 1)
+        self.keyboard.key(ecodes.KEY_MACRO1, 0)
         self.keyboard.key(ecodes.KEY_LEFTCTRL, 0)
         capture.join(WAIT_S + 1)
-        self.assertEqual(found, [("KEY_LEFTCTRL+KEY_F24", DEVICE_NAME)])
+        self.assertEqual(found, ["KEY_LEFTCTRL+KEY_MACRO1"])
 
 
 @unittest.skipUnless(LIVE, "set CDA_LIVE_LINUX=1 on a Linux desktop")
@@ -340,39 +352,38 @@ class LiveTypingTest(unittest.TestCase):
         text = "Hello, it's “fine”…\tok"
         expected = 'Hello, it\'s "fine"... ok'
         with TypedKeys() as keys:
-            result = output.deliver(text, dict(settings.DEFAULT_SETTINGS, copy_to_clipboard=False))
+            result = output.deliver(text, dict(TYPE_SETTINGS, copy_to_clipboard=False))
             self.assertEqual(keys.text(), expected)
         self.assertTrue(result.inserted, result.problem)
 
     def test_accents_are_refused_whole_instead_of_typed_with_holes(self):
         with TypedKeys() as keys:
-            result = output.deliver(
-                "café", dict(settings.DEFAULT_SETTINGS, copy_to_clipboard=False)
-            )
+            result = output.deliver("café", dict(TYPE_SETTINGS, copy_to_clipboard=False))
             self.assertEqual(keys.names(), [])
         self.assertFalse(result.inserted)
         self.assertFalse(result.uncertain)
         self.assertIn("Paste", result.problem)
 
     @unittest.skipUnless(os.environ.get("WAYLAND_DISPLAY"), "Wayland session")
-    def test_paste_puts_any_text_on_the_clipboard_and_presses_ctrl_v(self):
+    def test_paste_puts_any_text_on_clipboard_and_primary_and_presses_shift_insert(self):
         with SavedClipboard() as clipboard, TypedKeys() as keys:
             result = output.deliver("café 日本語", dict(settings.DEFAULT_SETTINGS, output="paste"))
-            self.assertEqual(keys.names(), ["KEY_LEFTCTRL", "KEY_V"])
+            self.assertEqual(keys.names(), ["KEY_LEFTSHIFT", "KEY_INSERT"])
             self.assertEqual(clipboard.read(), "café 日本語")
+            self.assertEqual(clipboard.read_primary(), "café 日本語")
         self.assertTrue(result.inserted and result.copied, result.problem)
 
     @unittest.skipUnless(os.environ.get("WAYLAND_DISPLAY"), "Wayland session")
     def test_copy_off_leaves_the_clipboard_alone_even_on_failure(self):
         with SavedClipboard() as clipboard, TypedKeys():
             before = clipboard.read()
-            output.deliver("café", dict(settings.DEFAULT_SETTINGS, copy_to_clipboard=False))
+            output.deliver("café", dict(TYPE_SETTINGS, copy_to_clipboard=False))
             self.assertEqual(clipboard.read(), before)
 
     @unittest.skipUnless(os.environ.get("WAYLAND_DISPLAY"), "Wayland session")
     def test_copy_on_still_copies_text_that_cannot_be_typed(self):
         with SavedClipboard() as clipboard, TypedKeys():
-            result = output.deliver("café", dict(settings.DEFAULT_SETTINGS))
+            result = output.deliver("café", dict(TYPE_SETTINGS))
             self.assertEqual(clipboard.read(), "café")
         self.assertTrue(result.copied)
         self.assertFalse(result.inserted)
@@ -507,10 +518,10 @@ class LiveAppTest(unittest.TestCase):
         config = cls.root / "config" / settings.APP_NAME
         config.mkdir(parents=True)
         (config / "settings.toml").write_text(
-            'shortcut_key = "KEY_F24"\n'
-            f'shortcut_device = "{DEVICE_NAME}"\n'
+            'shortcut_key = "KEY_MACRO1"\n'
             "grab = true\n"
             "copy_to_clipboard = false\n"
+            'output = "type"\n'
             f'claude_path = "{program}"\n'
         )
         (config / "settings.toml").chmod(0o644)  # as an earlier version left it
@@ -574,21 +585,21 @@ class LiveAppTest(unittest.TestCase):
     def log_tail(self):
         return self.log_path.read_text()[-1500:]
 
-    def press_f24(self):
-        self.keyboard.key(ecodes.KEY_F24, 1)
+    def press_shortcut(self):
+        self.keyboard.key(ecodes.KEY_MACRO1, 1)
 
-    def release_f24(self):
-        self.keyboard.key(ecodes.KEY_F24, 0)
+    def release_shortcut(self):
+        self.keyboard.key(ecodes.KEY_MACRO1, 0)
 
     def muted(self):
         return bool(self.speakers) and system_audio.device_muted(self.speakers)
 
     def dictate(self, keys):
         """One held press; returns the text typed."""
-        self.press_f24()
+        self.press_shortcut()
         self.state_is("listening")
         time.sleep(HOLD_S)
-        self.release_f24()
+        self.release_shortcut()
         self.state_is("idle")
         return keys.text()
 
@@ -607,28 +618,30 @@ class LiveAppTest(unittest.TestCase):
             )
         speakers_were_muted = self.muted()
         with TypedKeys() as keys:
-            self.press_f24()
+            self.press_shortcut()
             self.state_is("listening")
             self.assertTrue(wait_until(self.muted), "the speakers were not muted")
             time.sleep(HOLD_S)
-            self.release_f24()
+            self.release_shortcut()
             self.state_is("idle")
             self.assertEqual(keys.text(), "Hello from the live check.")
         self.assertEqual(self.muted(), speakers_were_muted)
-        self.assertEqual(self.status()["history"][0]["text"], "Hello from the live check.")
+        self.assertEqual(
+            self.status()["history"]["entries"][0]["text"], "Hello from the live check."
+        )
         self.assertEqual(self.keylog.read_bytes().count(b"\r"), 0)  # Enter was never pressed
 
     def test_2_toggle_press_starts_and_second_press_stops(self):
         self.api("/api/settings", {"mode": "toggle"})
         self.addCleanup(self.api, "/api/settings", {"mode": "hold"})
         with TypedKeys() as keys:
-            self.press_f24()
-            self.release_f24()
+            self.press_shortcut()
+            self.release_shortcut()
             self.state_is("listening")
             time.sleep(HOLD_S)
             self.assertEqual(self.status()["state"], "listening")  # the release did not stop it
-            self.press_f24()
-            self.release_f24()
+            self.press_shortcut()
+            self.release_shortcut()
             self.state_is("idle")
             self.assertEqual(keys.text(), "Hello from the live check.")
 
@@ -636,13 +649,13 @@ class LiveAppTest(unittest.TestCase):
         self.set_options(transcript="Slow text.", processing_s=2)
         self.fresh_session("de")
         with TypedKeys() as keys:
-            self.press_f24()
+            self.press_shortcut()
             self.state_is("listening")
             time.sleep(HOLD_S)
-            self.release_f24()
+            self.release_shortcut()
             self.state_is("transcribing")
-            self.press_f24()
-            self.release_f24()
+            self.press_shortcut()
+            self.release_shortcut()
             self.state_is("idle")
             self.assertEqual(keys.text(), "Slow text.")
             time.sleep(0.5)
@@ -666,18 +679,18 @@ class LiveAppTest(unittest.TestCase):
         self.api("/api/settings", {"output": "paste"})
         self.addCleanup(self.api, "/api/settings", {"output": "type"})
         with SavedClipboard() as clipboard, TypedKeys() as keys:
-            self.press_f24()
+            self.press_shortcut()
             self.state_is("listening")
             time.sleep(HOLD_S)
-            self.release_f24()
+            self.release_shortcut()
             self.state_is("idle")
-            self.assertEqual(keys.names(), ["KEY_LEFTCTRL", "KEY_V"])
+            self.assertEqual(keys.names(), ["KEY_LEFTSHIFT", "KEY_INSERT"])
             self.assertEqual(clipboard.read(), "café")
 
     def test_6_unplugging_mid_hold_keeps_the_text_and_a_new_plug_is_picked_up(self):
         speakers_were_muted = self.muted()
         with TypedKeys() as keys:
-            self.press_f24()
+            self.press_shortcut()
             self.state_is("listening")
             time.sleep(HOLD_S)
             self.keyboard.close()
@@ -714,11 +727,11 @@ class LiveAppTest(unittest.TestCase):
             wait_until(lambda: "/login" in self.status()["last_error"]), self.log_tail()
         )
         self.assertFalse(self.status()["session_running"])  # said at start, with no key pressed
-        self.press_f24()
+        self.press_shortcut()
         self.assertTrue(wait_until(lambda: connects.exists()), self.log_tail())
         time.sleep(1.5)  # the key stays held
         self.assertEqual(len(connects.read_text().splitlines()), 1)
-        self.release_f24()
+        self.release_shortcut()
         self.state_is("idle")
         self.assertIn("/login", self.status()["last_error"])
         # After /login, the next press works with no restart of the app.
@@ -739,13 +752,13 @@ class LiveAppTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, 403)
 
     def test_9_quitting_leaves_nothing_behind(self):
-        self.press_f24()  # quit in the middle of a recording, the hardest moment
+        self.press_shortcut()  # quit in the middle of a recording, the hardest moment
         self.state_is("listening")
         time.sleep(HOLD_S)
         speakers_muted_while_recording = self.muted()
         self.app.send_signal(signal.SIGTERM)
         self.app.wait(QUIT_LIMIT_S)
-        self.release_f24()
+        self.release_shortcut()
         self.assertEqual(self.app.returncode, 0, self.log_tail())
         leftovers = subprocess.run(
             ["pgrep", "-f", str(self.root)], capture_output=True, text=True, check=False

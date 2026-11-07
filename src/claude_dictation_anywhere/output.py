@@ -1,16 +1,28 @@
 """Put a transcript where you need it: the clipboard, and the app under your cursor.
 
-Linux (Wayland): wl-copy for the clipboard, ydotool to type or press Ctrl+V.
-Linux (X11):     xclip for the clipboard, ydotool to type or press Ctrl+V.
+Linux (Wayland): wl-copy for the clipboard, ydotool to type or press Shift+Insert.
+Linux (X11):     xclip for the clipboard, ydotool to type or press Shift+Insert.
 macOS:           pbcopy for the clipboard, Quartz events to type or press Cmd+V
                  (see mac_events.py; needs Accessibility permission).
+
+Why "paste" is the default: typing presses one key per character, so when the
+focus is not in a text box (a web page, a video player) each letter can fire one
+of that app's shortcuts. A paste arrives as one block, or not at all.
+
+Why Shift+Insert on Linux, not Ctrl+V: browsers, GTK, Qt, and Electron apps paste
+the clipboard on both, but terminals send Ctrl+V to the program inside them, and
+most paste with Shift+Insert instead. Some terminals (VTE ones such as GNOME
+Console, kitty, Alacritty, VS Code's terminal) paste the *primary selection* (the
+last selected text) on Shift+Insert, so the text goes on both the clipboard and
+the primary selection.
 
 What the settings promise:
 
     copy_to_clipboard off   nothing is written to the clipboard, not even on a
                             failure; the text waits on the settings page instead.
-                            Only "paste" mode uses the clipboard regardless, because
-                            pasting is how it works; the settings page says so.
+                            Only "paste" mode uses the clipboard (and on Linux the
+                            primary selection) regardless, because pasting is how
+                            it works; the settings page says so.
     Linux "type" mode       ydotool skips what a US keyboard cannot type and still reports
                             success, so text with other characters is refused whole and
                             waits on the settings page, instead of arriving with holes.
@@ -45,9 +57,8 @@ log = logging.getLogger(__name__)
 # 2 ms keeps 100 characters under half a second; raise both if an app drops keys.
 YDOTOOL_KEY_DELAY_MS = 2
 YDOTOOL_KEY_HOLD_MS = 2
-# ydotool uses Linux key codes: 29 = Left Ctrl, 47 = V, 42 = Left Shift; ":1" is
-# down, ":0" up.
-YDOTOOL_CTRL_V = ["29:1", "47:1", "47:0", "29:0"]
+# ydotool uses Linux key codes: 42 = Left Shift, 110 = Insert; ":1" is down, ":0" up.
+YDOTOOL_SHIFT_INSERT = ["42:1", "110:1", "110:0", "42:0"]
 # Some apps (seen in the Claude desktop app's chat box) drop the first ~40 ms of
 # synthetic keys, ~10 characters, while their text field or input method wakes
 # up. A Shift tap types nothing but wakes it; the pause lets it finish.
@@ -188,6 +199,18 @@ def clipboard_command() -> list[str] | None:
     return None
 
 
+def primary_selection_command() -> list[str] | None:
+    """Linux: the command that reads text on stdin into the primary selection, or None."""
+    clipboard = clipboard_command()
+    if clipboard is None:
+        return None
+    return (
+        ["wl-copy", "--primary"]
+        if clipboard[0] == "wl-copy"
+        else ["xclip", "-selection", "primary"]
+    )
+
+
 def setup_warnings(settings: dict) -> list[dict]:
     """Fixes for tools or permissions the current settings need but lack.
 
@@ -259,9 +282,16 @@ def _paste_linux(text: str, cancel) -> None:
         raise InsertionFailed("could not copy it for pasting", uncertain=False) from error
     if not copied:
         raise InsertionFailed("paste needs wl-clipboard or xclip installed", uncertain=False)
+    # Best effort: apps that paste the clipboard on Shift+Insert still work without it.
+    try:
+        run_helper(primary_selection_command(), text.encode(), HELPER_TIMEOUT_S, cancel)
+    except (OSError, subprocess.SubprocessError, HelperTimeout) as error:
+        log.warning("could not set the primary selection: %s", type(error).__name__)
+    except HelperCancelled as error:
+        raise InsertionFailed("stopped before pasting", uncertain=False) from error
     time.sleep(PASTE_AFTER_COPY_S)
     try:
-        run_helper(["ydotool", "key", *YDOTOOL_CTRL_V], None, HELPER_TIMEOUT_S, cancel)
+        run_helper(["ydotool", "key", *YDOTOOL_SHIFT_INSERT], None, HELPER_TIMEOUT_S, cancel)
     except OSError as error:
         raise InsertionFailed("ydotool could not start", uncertain=False) from error
     except (subprocess.SubprocessError, HelperTimeout, HelperCancelled) as error:

@@ -73,14 +73,30 @@ class History:
                 )
         return entry
 
-    def recent(self, limit: int) -> list[dict]:
-        """Newest first; empty if the file cannot be read (the problem is logged)."""
+    def page(self, number: int, size: int) -> dict:
+        """One page of the history, newest first; page 1 holds the newest ``size`` entries.
+
+        Returns
+        -------
+        dict
+            ``{"entries": [entry, ...], "page": n, "pages": count, "total": entries}``.
+            ``page`` is clamped to 1..pages, so a page that emptied (history cleared,
+            old entries dropped) shows the last one that still exists. ``pages`` is
+            at least 1. Empty if the file cannot be read (the problem is logged).
+        """
         with self._lock:
             try:
-                return list(reversed(self._read()[-limit:]))
+                entries = self._read()
             except OSError as error:
                 log.warning("could not read the history: %s", error.strerror)
-                return []
+                entries = []
+            total = len(entries)
+            pages = max(1, -(-total // size))  # ceiling division
+            number = min(max(1, number), pages)
+            # Newest last on disk: page 1 is the last ``size`` entries, reversed.
+            end = total - (number - 1) * size
+            chosen = entries[max(0, end - size) : end]
+            return {"entries": chosen[::-1], "page": number, "pages": pages, "total": total}
 
     def clear(self) -> None:
         with self._lock:

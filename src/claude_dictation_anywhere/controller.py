@@ -48,7 +48,14 @@ from .claude_session import (
     find_claude,
 )
 from .history import History
-from .settings import IS_MAC, UnsafeFolderError, check_settings, data_dir, save_settings
+from .settings import (
+    DEFAULT_SETTINGS,
+    IS_MAC,
+    UnsafeFolderError,
+    check_settings,
+    data_dir,
+    save_settings,
+)
 
 if IS_MAC:
     from . import mac_events
@@ -61,7 +68,7 @@ CAPTURE_TIMEOUT_S = 15
 # until you grant Input Monitoring, or its Linux device unplugged. Retries run on
 # each settings-page poll and every IDLE_CHECK_INTERVAL_S otherwise.
 LISTENER_RETRY_INTERVAL_S = 5
-HISTORY_PAGE_SIZE = 100
+HISTORY_PAGE_SIZE = 20  # transcripts per page of the history tab
 ERROR_BANNER_S = 3
 # Setup warnings ask macOS or look for programs; the page polls faster than they change.
 WARNINGS_CACHE_S = 5
@@ -80,7 +87,7 @@ SHUTDOWN_JOIN_TIMEOUT_S = 5
 THREAD_JOIN_TIMEOUT_S = 2
 
 # Settings whose change needs a restart of the shortcut listener.
-LISTENER_SETTINGS = {"shortcut_key", "shortcut_device", "grab"}
+LISTENER_SETTINGS = {"shortcut_key", "grab"}
 SESSION_SETTINGS = {"language", "claude_path"}
 
 # Worker event kinds.
@@ -278,8 +285,16 @@ class DictationController:
         """Forget one transcript kept for recovery."""
         self.recovery = [entry for entry in self.recovery if entry["id"] != entry_id]
 
-    def status(self) -> dict:
-        """Everything the settings page shows (polled by it every few seconds)."""
+    def reset_settings(self) -> dict:
+        """Put every setting back to its default; same checks and errors as ``update_settings``."""
+        return self.update_settings(dict(DEFAULT_SETTINGS))
+
+    def status(self, history_page: int = 1) -> dict:
+        """Everything the settings page shows (polled by it every few seconds).
+
+        ``history_page`` picks which page of the history to include (1 = newest);
+        see ``History.page`` for the shape.
+        """
         self._retry_blocked_listener()
         settings = self.settings
         session = self.session
@@ -290,9 +305,7 @@ class DictationController:
             "last_error": self.last_error,
             "claude": {"path": self.claude_path, "version": self.claude_version},
             "session_running": bool(session and session.running),
-            "shortcut": hotkeys.describe_shortcut(
-                settings["shortcut_key"], settings["shortcut_device"]
-            ),
+            "shortcut": hotkeys.describe_shortcut(settings["shortcut_key"]),
             "capture": self.capture,
             "warnings": [
                 *(
@@ -310,7 +323,11 @@ class DictationController:
             ],
             "settings": dict(settings),
             "recovery": list(self.recovery),
-            "history": self.history.recent(HISTORY_PAGE_SIZE) if settings["history"] else [],
+            "history": (
+                self.history.page(history_page, HISTORY_PAGE_SIZE)
+                if settings["history"]
+                else {"entries": [], "page": 1, "pages": 1, "total": 0}
+            ),
         }
 
     # ---- shortcut events (from the listener thread) ----
@@ -442,17 +459,16 @@ class DictationController:
             found = hotkeys.capture_next_input(CAPTURE_TIMEOUT_S, self._stopping)
             if found is None:
                 self.capture = {"status": "timeout"}
-            elif problem := hotkeys.shortcut_problem(found[0]):
+            elif problem := hotkeys.shortcut_problem(found):
                 self.capture = {"status": "rejected", "message": problem}
             else:
-                key, device = found
                 with self._settings_lock:
-                    candidate = {**self.settings, "shortcut_key": key, "shortcut_device": device}
+                    candidate = {**self.settings, "shortcut_key": found}
                     save_settings(candidate)
                     self.settings = candidate
                 self.capture = {
                     "status": "done",
-                    "shortcut": hotkeys.describe_shortcut(key, device),
+                    "shortcut": hotkeys.describe_shortcut(found),
                 }
                 log.info("new shortcut %s", self.capture["shortcut"])
         except OSError as error:

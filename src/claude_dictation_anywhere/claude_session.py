@@ -68,7 +68,12 @@ WARMUP_FREEZE_TIMEOUT_S = 3  # release -> "keep holding…" must be gone
 EDITOR_TIMEOUT_S = 5  # Ctrl+G -> the hook has handed over the text (usually 0.3 s)
 POST_EDITOR_TIMEOUT_S = 2  # hook done -> the prompt box is back
 CANCEL_TIMEOUT_S = 2  # Esc -> voice is idle again
-TRUST_KEY_TIMEOUT_S = 1  # arrow key -> the dialog shows it moved
+TRUST_KEY_TIMEOUT_S = 1  # Enter -> the dialog goes away
+# Claude Code 2.1.318 draws the trust dialog before it reads keys, so an arrow sent
+# at once is lost. The arrow waits for a still screen and is resent while it has
+# not moved; Enter is still sent only after reading that the arrow is on "Yes".
+TRUST_ARROW_RETRY_S = 0.5
+TRUST_ARROW_TRIES = 6
 READY_GRACE_S = 0.3  # press -> the prompt box, if a redraw is under way
 WRITE_TIMEOUT_S = 1  # a control key waits this long for room in a full pty
 AUTH_STATUS_TIMEOUT_S = 5
@@ -467,12 +472,19 @@ class ClaudeVoiceSession:
         The session has no tools, so "yes" is safe. The arrow starts on "No", so it
         moves first, and Enter is sent only after reading that it is on "Yes".
         """
-        if trust_dialog_choice(self.rows) != "yes":
+        tries = 0
+        while trust_dialog_choice(self.rows) != "yes":
+            if tries == TRUST_ARROW_TRIES:
+                raise DictationError(UNKNOWN_SCREEN_HELP)
+            tries += 1
+            quiet_by = time.monotonic() + TRUST_ARROW_RETRY_S
+            while not self._screen_quiet_for(STARTUP_QUIET_S) and time.monotonic() < quiet_by:
+                time.sleep(POLL_S)
+            if trust_dialog_choice(self.rows) == "yes":  # an earlier arrow arrived late
+                break
             self._write_key(ARROW_DOWN)
-            deadline = time.monotonic() + TRUST_KEY_TIMEOUT_S
-            while trust_dialog_choice(self.rows) != "yes":
-                if time.monotonic() > deadline:
-                    raise DictationError(UNKNOWN_SCREEN_HELP)
+            moved_by = time.monotonic() + TRUST_ARROW_RETRY_S
+            while trust_dialog_choice(self.rows) != "yes" and time.monotonic() < moved_by:
                 time.sleep(POLL_S)
         self._write_key(ENTER)
         deadline = time.monotonic() + TRUST_KEY_TIMEOUT_S

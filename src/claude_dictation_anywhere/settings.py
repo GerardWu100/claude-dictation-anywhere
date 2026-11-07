@@ -41,20 +41,22 @@ DEFAULT_SETTINGS = {
     # Keys pressed together are joined by "+", e.g. "key:59+key:58" (Control + Option).
     # The settings page fills this in when you press "Change".
     "shortcut_key": "key:54" if IS_MAC else "KEY_RIGHTCTRL",
-    # Linux only: exact name of the device that must send the key, so the same
-    # key on another keyboard does nothing. "" = any device.
-    "shortcut_device": "",
     # "hold": record while the key is held, stop on release.
     # "toggle": press once to start, press again to stop.
     "mode": "hold",
-    # Linux only: stop the key's normal job while the app runs. Needed for mouse
-    # side buttons (otherwise they also mean Back in the browser).
-    "grab": False,
+    # Linux only: hide the shortcut's main key (U in Ctrl+U, F8, a mouse side
+    # button) from other apps while the shortcut is held, as macOS always does, so
+    # Ctrl+U does not also open a page's source and a side button does not also mean
+    # Back. Off: the key also reaches the app in front. Modifier-only shortcuts
+    # (Right Ctrl) are never hidden.
+    "grab": True,
     # How the text reaches the app under your cursor.
-    # "type": typed key by key (works in terminals; Linux: US-keyboard characters only).
-    # "paste": copied, then Ctrl+V / Cmd+V (any characters; not in Linux terminals).
+    # "paste": arrives as one block: copied, then Shift+Insert (Linux) / Cmd+V (macOS).
+    #   Any characters; works in browsers, editors, and terminals; uses the clipboard.
+    # "type": typed key by key. When the focus is not in a text box, each letter can
+    #   trigger that app's shortcuts. Linux: US-keyboard characters only.
     # "none": not inserted; use the clipboard or the history page.
-    "output": "type",
+    "output": "paste",
     # Also put every transcript on the clipboard.
     "copy_to_clipboard": True,
     # Dictation language code (see DICTATION_LANGUAGES); "" = English.

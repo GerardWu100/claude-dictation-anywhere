@@ -13,9 +13,13 @@ as released when any of them is let go.
 Both platforms offer the same things:
 
     TriggerListener(settings, on_down, on_up, on_lost).start() / .stop()
-    capture_next_input(timeout_s, cancel) -> (shortcut, device) | None   # "Change shortcut"
-    describe_shortcut(shortcut, device) -> str                           # for the settings page
-    shortcut_problem(shortcut) -> str | None                             # why it is refused
+    capture_next_input(timeout_s, cancel) -> shortcut | None   # "Change shortcut"
+    describe_shortcut(shortcut) -> str                         # for the settings page
+    shortcut_problem(shortcut) -> str | None                   # why it is refused
+
+A shortcut works from any keyboard or mouse that has its keys, so a second
+keyboard or a new mouse needs no setup. Keys of a combination may come from
+different devices (Ctrl on the keyboard, a side button on the mouse).
 
 ``on_lost`` runs when the listener ends for any reason (device unplugged, permission
 gone, ``stop()``) or loses track of the keys (Linux dropped events). No release will
@@ -148,10 +152,9 @@ def shortcut_problem(shortcut: str) -> str | None:
     return None
 
 
-def describe_shortcut(shortcut: str, device: str) -> str:
-    """Human-readable shortcut, e.g. "Control + Option" or "F8 on Keychron Link Keyboard"."""
-    name = " + ".join(describe_key(k) for k in shortcut_keys(shortcut))
-    return f"{name} on {' '.join(device.split())}" if device else name
+def describe_shortcut(shortcut: str) -> str:
+    """Human-readable shortcut, e.g. "Control + Option" or "Left Ctrl + F8"."""
+    return " + ".join(describe_key(k) for k in shortcut_keys(shortcut))
 
 
 if IS_MAC:
@@ -220,8 +223,8 @@ if IS_MAC:
                 )
             return ""
 
-    def capture_next_input(timeout_s: float, cancel=None) -> tuple[str, str] | None:
-        """Record the keys held together, until the first is let go; return (shortcut, "").
+    def capture_next_input(timeout_s: float, cancel=None) -> str | None:
+        """Record the keys held together, until the first is let go; return the shortcut.
 
         ``cancel`` is a threading.Event that ends the wait early.
         """
@@ -246,7 +249,7 @@ if IS_MAC:
                     return None
         finally:
             tap.stop()
-        return (COMBINATION_SEPARATOR.join(found), "") if found else None
+        return COMBINATION_SEPARATOR.join(found) if found else None
 
 else:
     import evdev
@@ -313,21 +316,26 @@ else:
     class TriggerListener:
         """Calls ``on_down`` / ``on_up`` when the shortcut is pressed / released (Linux).
 
-        With ``grab`` on, each matching device is taken exclusively and a virtual
-        twin (uinput) replays its events, so the pointer and other keys behave
-        as before. A one-key shortcut is never replayed, so it loses its normal
-        job. In a combination, modifiers (Ctrl, Shift, Alt, Super) are always
-        replayed, so Ctrl+C keeps working; the other keys are dropped only while
-        the rest of the combination is held.
+        With ``grab`` on (the default) and a shortcut that has a key other than a
+        modifier, each device that has such a key is taken exclusively and a
+        virtual twin (uinput) replays its events, so the pointer and other keys
+        behave as before. That key (U in Ctrl+U, F8, a side button) is dropped
+        while the rest of the shortcut is held, so it does not also act in the app
+        in front; pressed alone it works as usual, and a one-key shortcut loses its
+        normal job. Modifiers (Ctrl, Shift, Alt, Super) are always replayed, so
+        Ctrl+C keeps working. A shortcut made only of modifiers is just watched,
+        as on macOS.
         """
 
         def __init__(self, settings: dict, on_down, on_up, on_lost):
             self.key = settings["shortcut_key"]
-            self.device_name = settings["shortcut_device"]
             self.grab = settings["grab"]
             self.on_down, self.on_up, self.on_lost = on_down, on_up, on_lost
             keys = shortcut_keys(self.key)
-            hideable = keys if len(keys) == 1 else [k for k in keys if k not in MODIFIER_KEYS]
+            hideable = [k for k in keys if k not in MODIFIER_KEYS]
+            self.grab = self.grab and bool(hideable)
+            # Only devices that can send a hideable key need taking over.
+            self._hideable_codes = {ecodes.ecodes[k] for k in hideable if k in ecodes.ecodes}
             self.combination = Combination(self.key, on_down, on_up, hideable)
             self._thread: threading.Thread | None = None
             self._pipe_lock = threading.Lock()
@@ -352,18 +360,18 @@ else:
                     d
                     for d in devices
                     if key_names.keys() & set(d.capabilities().get(ecodes.EV_KEY, []))
-                    and self.device_name in ("", d.name)
                 ]
                 if not devices:
                     raise ValueError(
-                        f"No input device has {describe_shortcut(self.key, self.device_name)}. "
+                        f"No input device has {describe_shortcut(self.key)}. "
                         "Plug it in; the app picks it up by itself."
                     )
                 selector = resources.enter_context(selectors.DefaultSelector())
                 selector.register(self._wake_read, selectors.EVENT_READ)
                 passthrough = {}
                 for device in devices:
-                    if self.grab:
+                    capabilities = set(device.capabilities().get(ecodes.EV_KEY, []))
+                    if self.grab and self._hideable_codes & capabilities:
                         twin = evdev.UInput.from_device(device, name=PASSTHROUGH_DEVICE_NAME)
                         resources.callback(twin.close)
                         passthrough[device.fd] = twin
@@ -412,7 +420,7 @@ else:
                 return ""
             return (
                 f"{describe_key(shown[0])} also reaches the app you are in. Turn on "
-                "“Stop the shortcut doing its normal job” to hide it."
+                "“Hide the shortcut's key from other apps” in Settings to stop that."
             )
 
         def is_alive(self) -> bool:
@@ -490,11 +498,10 @@ else:
         except OSError as error:
             log.warning("could not release replayed keys: %s", error)
 
-    def capture_next_input(timeout_s: float, cancel=None) -> tuple[str, str] | None:
-        """Record the keys held together, until the first is let go; return (shortcut, device).
+    def capture_next_input(timeout_s: float, cancel=None) -> str | None:
+        """Record the keys held together, until the first is let go; return the shortcut.
 
-        The device name is set only when every key came from the same device.
-        Left and right mouse buttons are skipped (you need them to click around),
+        Keys may come from different devices. Left and right mouse buttons are skipped (you need them to click around),
         and so are touchpads' internal "finger" codes. ``cancel`` is a
         threading.Event that ends the wait early.
         """
@@ -517,12 +524,6 @@ else:
                 if ecodes.EV_KEY in device.capabilities():
                     selector.register(device, selectors.EVENT_READ)
             found: list[str] = []  # in press order
-            device_names: set[str] = set()
-
-            def result() -> tuple[str, str]:
-                device = next(iter(device_names)) if len(device_names) == 1 else ""
-                return COMBINATION_SEPARATOR.join(found), device
-
             end = time.monotonic() + timeout_s
             while (remaining := end - time.monotonic()) > 0:
                 if cancel is not None and cancel.is_set():
@@ -539,7 +540,6 @@ else:
                         name = _code_name(event.code)
                         if event.value == 1 and name not in found:
                             found.append(name)
-                            device_names.add(selected.fileobj.name)
                         elif event.value == 0 and name in found:
-                            return result()
-        return result() if found else None
+                            return COMBINATION_SEPARATOR.join(found)
+        return COMBINATION_SEPARATOR.join(found) if found else None

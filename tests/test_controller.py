@@ -226,7 +226,7 @@ class NormalFlowTest(ControllerCase):
         self.deliver.assert_called_once()
         self.assertEqual(self.deliver.call_args.args[0], "hello")
         self.assertEqual(self.controller.state, "idle")
-        self.assertEqual(self.controller.history.recent(5)[0]["text"], "hello")
+        self.assertEqual(self.controller.history.page(1, 5)["entries"][0]["text"], "hello")
 
     def test_spaces_start_before_slow_feedback(self):
         self.dictate()  # the session is running, as it is after prewarming
@@ -568,7 +568,7 @@ class ListenerFailureTest(ControllerCase):
             self.failing_listener(),
             self.assertLogs("claude_dictation_anywhere.controller", "ERROR"),
         ):
-            self.controller.update_settings({"grab": True})
+            self.controller.update_settings({"grab": False})
         self.assertIn("uinput", self.controller.listener_error)
         self.assertIsNone(self.controller.listener)
         self.assertIn("uinput", self.controller.status()["warnings"][0]["text"])
@@ -714,7 +714,7 @@ class WorkerSurvivalTest(ControllerCase):
         self.deliver.return_value = output.Delivery(problem="Could not insert it.")
         self.dictate()
         self.assertEqual(self.controller.recovery[0]["text"], "hello")
-        self.assertEqual(self.controller.history.recent(5), [])
+        self.assertEqual(self.controller.history.page(1, 5)["entries"], [])
         self.deliver.return_value = output.Delivery(inserted=True)
         self.controller.last_error = ""
         self.assert_recovers()
@@ -833,6 +833,13 @@ class ShutdownTest(ControllerCase):
 
 
 class SettingsTransactionTest(ControllerCase):
+    def test_reset_puts_every_setting_back_and_saves_it(self):
+        self.controller.update_settings({"mode": "toggle", "shortcut_key": "KEY_F9"})
+        self.controller.reset_settings()
+        self.assertEqual(self.controller.settings, settings.DEFAULT_SETTINGS)
+        self.assertEqual(settings.load_settings(), settings.DEFAULT_SETTINGS)
+        self.assertEqual(FakeListener.instances[-1].settings["shortcut_key"], "KEY_RIGHTCTRL")
+
     def test_failed_save_changes_nothing(self):
         before = dict(self.controller.settings)
         with (
@@ -862,9 +869,7 @@ class SettingsTransactionTest(ControllerCase):
         self.assertIn("Unknown key code", self.controller.listener_error)
 
     def test_capture_saves_through_the_same_transaction(self):
-        with patch.object(
-            controller_module.hotkeys, "capture_next_input", return_value=("KEY_F9", "")
-        ):
+        with patch.object(controller_module.hotkeys, "capture_next_input", return_value="KEY_F9"):
             self.controller.capture_shortcut()
             self.controller._capture_thread.join(WAIT_S)
         self.assertEqual(self.controller.capture["status"], "done")
@@ -875,9 +880,7 @@ class SettingsTransactionTest(ControllerCase):
     def test_failed_capture_save_leaves_old_shortcut_and_a_listener(self):
         before = self.controller.settings["shortcut_key"]
         with (
-            patch.object(
-                controller_module.hotkeys, "capture_next_input", return_value=("KEY_F9", "")
-            ),
+            patch.object(controller_module.hotkeys, "capture_next_input", return_value="KEY_F9"),
             patch.object(controller_module, "save_settings", side_effect=OSError(28, "No space")),
         ):
             self.controller.capture_shortcut()

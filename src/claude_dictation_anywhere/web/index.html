@@ -61,6 +61,16 @@
   ul.history li:first-child { border-top: 0; }
   ul.history .text { flex: 1; white-space: pre-wrap; word-break: break-word; }
   .empty { color: var(--muted); padding: 8px 0; }
+  nav.tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+  nav.tabs a { padding: 8px 14px; color: var(--muted); text-decoration: none; font-weight: 600;
+               border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  nav.tabs a.on { color: var(--text); border-bottom-color: var(--accent); }
+  ul.history .when { flex: none; width: 150px; }
+  ul.history .when b { display: block; color: var(--text); font-weight: 600; }
+  .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px;
+           border-top: 1px solid var(--line); margin-top: 4px; }
+  .pager button:disabled { opacity: 0.4; cursor: default; }
+  @media (max-width: 520px) { ul.history li { flex-wrap: wrap; } ul.history .when { width: 100%; } }
 </style>
 </head>
 <body>
@@ -78,6 +88,30 @@
     <ul id="recovery" class="recovery"></ul>
   </section>
 
+  <nav class="tabs">
+    <a href="#history" id="tab-history">History</a>
+    <a href="#settings" id="tab-settings">Settings</a>
+  </nav>
+
+  <div id="panel-history">
+  <section class="card">
+    <div class="row" style="padding-top:0">
+      <h2 style="margin:0">History <span id="history-count" class="muted"></span></h2>
+      <span>
+        <label class="muted"><input type="checkbox" data-setting="history"> Keep history</label>
+        <button id="clear">Clear</button>
+      </span>
+    </div>
+    <ul id="history" class="history"></ul>
+    <div class="pager" id="pager" hidden>
+      <button id="newer">‹ Newer</button>
+      <span id="page-label" class="muted"></span>
+      <button id="older">Older ›</button>
+    </div>
+  </section>
+  </div>
+
+  <div id="panel-settings" hidden>
   <section class="card">
     <h2>Shortcut</h2>
     <div class="row">
@@ -92,7 +126,7 @@
       </span>
     </div>
     <div class="row" id="grab-row" hidden>
-      <label for="grab">Stop the shortcut doing its normal job (needed for mouse side buttons, which also mean Back)</label>
+      <label for="grab" title="So Ctrl+U does not also act in the app in front, and a mouse side button does not also mean Back">Hide the shortcut's key from other apps</label>
       <input type="checkbox" id="grab" data-setting="grab">
     </div>
   </section>
@@ -102,8 +136,8 @@
     <div class="row">
       <span>Put the text in the app under the cursor</span>
       <select data-setting="output">
-        <option value="type">Type it</option>
-        <option value="paste">Paste it (always uses the clipboard)</option>
+        <option value="paste">Paste it in one go (uses the clipboard)</option>
+        <option value="type">Type it key by key (only into text boxes)</option>
         <option value="none">Don't insert</option>
       </select>
     </div>
@@ -143,14 +177,11 @@
 
   <section class="card">
     <div class="row" style="padding-top:0">
-      <h2 style="margin:0">History</h2>
-      <span>
-        <label class="muted"><input type="checkbox" data-setting="history"> Keep history</label>
-        <button id="clear">Clear</button>
-      </span>
+      <span>Put every setting back to its default</span>
+      <button id="reset">Reset to defaults</button>
     </div>
-    <ul id="history" class="history"></ul>
   </section>
+  </div>
 </main>
 
 <script>
@@ -163,6 +194,11 @@ const STATE_COLOURS = {idle: "#d97757", starting: "#e6aa28", listening: "#dc2828
   transcribing: "#3c78dc", paused: "#8c8c8c", capturing: "#9658d2", failed: "#5a3c3c"};
 let lastStatus = null;
 let pollFailed = false;
+let historyPage = 1;  // 1 = newest transcripts
+let capturing = false;  // while true, keys pressed on this page do nothing here
+
+// Every reply carries the status, with the history page this tab shows.
+const withPage = path => `${path}?history_page=${historyPage}`;
 
 // The tray's microphone on a 64-unit grid: white capsule, cradle, stem and base on a coloured circle.
 function micIcon(colour) {
@@ -192,7 +228,7 @@ class ApiError extends Error {
 async function api(method, path, body) {
   let response;
   try {
-    response = await fetch(path, {method, headers: {"X-CDA-Token": TOKEN, "Content-Type": "application/json"},
+    response = await fetch(withPage(path), {method, headers: {"X-CDA-Token": TOKEN, "Content-Type": "application/json"},
                                   body: body ? JSON.stringify(body) : undefined});
   } catch {
     throw new ApiError("disconnected", "The app is not running.");
@@ -249,6 +285,7 @@ function render(status) {
   const notes = {waiting: "Press the key, keys together, or mouse button you want…", timeout: "No press within 15 seconds.",
                  done: "Saved.", rejected: status.capture.message || ""};
   document.getElementById("capture-note").textContent = notes[status.capture.status] || "";
+  capturing = status.capture.status === "waiting";
   const claude = status.claude.path ? `${status.claude.version || "?"} · ${status.claude.path}` +
     (status.session_running ? " · running" : " · stopped") : "not found";
   document.getElementById("claude").textContent = claude;
@@ -290,24 +327,63 @@ function render(status) {
     else el.value = value;
   }
 
+  renderHistory(status.settings.history, status.history);
+}
+
+// "2026-11-07T14:51:09" (local time, as saved) -> "Sat, Nov 7, 2026" and "2:51:09 PM".
+function whenSaid(iso) {
+  const date = new Date(iso);
+  if (isNaN(date)) return [iso, ""];
+  return [date.toLocaleDateString(undefined, {weekday: "short", year: "numeric", month: "short", day: "numeric"}),
+          date.toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit", second: "2-digit"})];
+}
+
+function renderHistory(enabled, history) {
+  // A slow reply for a page this tab has already left is skipped; the next poll brings the right one.
+  if (history.page !== Math.min(historyPage, history.pages)) return;
+  historyPage = history.page;  // the app clamps it when entries were cleared or dropped
+  document.getElementById("history-count").textContent = history.total ? `· ${history.total}` : "";
+  const pager = document.getElementById("pager");
+  pager.hidden = history.pages <= 1;
+  document.getElementById("page-label").textContent = `Page ${history.page} of ${history.pages}`;
+  document.getElementById("newer").disabled = history.page <= 1;
+  document.getElementById("older").disabled = history.page >= history.pages;
   const list = document.getElementById("history");
-  if (!changed("history", [status.settings.history, status.history])) return;
-  if (!status.settings.history) {
+  if (!changed("history", [enabled, history])) return;
+  if (!enabled) {
     list.innerHTML = '<li class="empty">History is off.</li>';
-  } else if (!status.history.length) {
+  } else if (!history.entries.length) {
     list.innerHTML = '<li class="empty">Nothing yet. Hold your shortcut and speak.</li>';
   } else {
-    list.replaceChildren(...status.history.map(entry => {
+    list.replaceChildren(...history.entries.map(entry => {
       const li = document.createElement("li");
+      const [day, time] = whenSaid(entry.time);
+      const when = document.createElement("div"); when.className = "when muted";
+      const strong = document.createElement("b"); strong.textContent = time;
+      when.append(strong, day, ` · ${entry.seconds} s`);
       const text = document.createElement("div"); text.className = "text"; text.textContent = entry.text;
-      const when = document.createElement("div"); when.className = "muted";
-      when.textContent = entry.time.replace("T", " ").slice(5, 16);
       const copy = document.createElement("button"); copy.textContent = "Copy";
       copy.onclick = () => copyText(entry.text, copy);
       li.append(when, text, copy); return li;
     }));
   }
 }
+
+async function showHistoryPage(number) {
+  historyPage = number;
+  await act(async () => render(await api("GET", "/api/status")));
+  document.getElementById("panel-history").scrollIntoView({block: "start"});
+}
+
+function showTab() {
+  const tab = location.hash === "#settings" ? "settings" : "history";
+  for (const name of ["history", "settings"]) {
+    document.getElementById(`panel-${name}`).hidden = name !== tab;
+    document.getElementById(`tab-${name}`).classList.toggle("on", name === tab);
+  }
+}
+window.addEventListener("hashchange", showTab);
+showTab();
 
 async function save(name, value) {
   await act(async () => render(await api("POST", "/api/settings", {[name]: value})));
@@ -321,7 +397,22 @@ for (const el of document.querySelectorAll("[data-setting]")) {
   else if (el.type === "number") el.onchange = () => save(name, parseInt(el.value || "0", 10));
   else el.onchange = () => save(name, el.value);
 }
-document.getElementById("capture").onclick = () => act(async () => render(await api("POST", "/api/capture")));
+document.getElementById("capture").onclick = () => {
+  capturing = true;
+  act(async () => render(await api("POST", "/api/capture")));
+};
+// While waiting for a new shortcut, keep this page's browser from acting on it
+// (Ctrl+U would open the page source, Ctrl+F the find bar). The app reads the keys itself.
+// A few browser keys (Ctrl+W, Ctrl+T, Ctrl+N) cannot be stopped by a page.
+document.addEventListener("keydown", event => {
+  if (capturing) { event.preventDefault(); event.stopPropagation(); }
+}, true);
+document.getElementById("newer").onclick = () => showHistoryPage(historyPage - 1);
+document.getElementById("older").onclick = () => showHistoryPage(historyPage + 1);
+document.getElementById("reset").onclick = () => {
+  if (confirm("Put every setting, including the shortcut, back to its default? History is kept."))
+    act(async () => render(await api("POST", "/api/settings/reset")));
+};
 document.getElementById("clear").onclick = () => {
   if (confirm("Delete all saved transcripts?")) act(async () => render(await api("POST", "/api/history/clear")));
 };

@@ -206,14 +206,14 @@ class HistoryTest(FolderCase):
             log.add(word, 1.0)
         self.assertEqual(mode_of(log.path), 0o600)
         self.assertEqual(mode_of(log.path.parent), 0o700)
-        self.assertEqual([e["text"] for e in log.recent(5)], ["c", "b"])
+        self.assertEqual([e["text"] for e in log.page(1, 5)["entries"]], ["c", "b"])
 
     def test_existing_broad_file_is_tightened(self):
         log = self.log()
         log.path.parent.mkdir()
         log.path.write_text("")
         log.path.chmod(0o644)
-        log.recent(1)
+        log.page(1, 1)["entries"]
         self.assertEqual(mode_of(log.path), 0o600)
 
     def test_damaged_and_wrong_shaped_lines_are_skipped(self):
@@ -232,18 +232,18 @@ class HistoryTest(FolderCase):
         ]
         log.path.write_bytes(b"\n".join(lines) + b"\n")
         with self.assertLogs("claude_dictation_anywhere.history", "WARNING"):
-            self.assertEqual(log.recent(10), [good])
+            self.assertEqual(log.page(1, 10)["entries"], [good])
 
     def test_read_failure_shows_nothing_rather_than_crashing(self):
         log = self.log()
         log.path.parent.mkdir()
         log.path.mkdir()  # a folder where the file should be
         with self.assertLogs("claude_dictation_anywhere.history", "WARNING"):
-            self.assertEqual(log.recent(5), [])
+            self.assertEqual(log.page(1, 5)["entries"], [])
 
     def test_add_reports_a_write_failure_to_the_caller(self):
         log = self.log()
-        log.recent(1)
+        log.page(1, 1)["entries"]
         with (
             patch.object(history.os, "open", side_effect=OSError(28, "No space")),
             self.assertRaises(OSError),
@@ -254,14 +254,27 @@ class HistoryTest(FolderCase):
         log = self.log()
         log.add("x", 1.0)
         with patch.object(Path, "read_bytes", side_effect=AssertionError("read again")):
-            self.assertEqual(log.recent(1)[0]["text"], "x")
+            self.assertEqual(log.page(1, 1)["entries"][0]["text"], "x")
 
     def test_clear_removes_the_file_and_the_memory(self):
         log = self.log()
         log.add("x", 1.0)
         log.clear()
-        self.assertEqual(log.recent(5), [])
+        self.assertEqual(log.page(1, 5)["entries"], [])
         self.assertFalse(log.path.exists())
+
+    def test_pages_run_from_newest_to_oldest_and_clamp(self):
+        log = self.log()
+        for word in "abcde":
+            log.add(word, 1.0)
+        texts = lambda page: [e["text"] for e in page["entries"]]
+        first = log.page(1, 2)
+        self.assertEqual((texts(first), first["pages"], first["total"]), (["e", "d"], 3, 5))
+        self.assertEqual(texts(log.page(3, 2)), ["a"])
+        self.assertEqual(log.page(9, 2)["page"], 3)  # past the end: the last page
+        self.assertEqual(log.page(0, 2)["page"], 1)
+        log.clear()
+        self.assertEqual(log.page(2, 2), {"entries": [], "page": 1, "pages": 1, "total": 0})
 
 
 if __name__ == "__main__":

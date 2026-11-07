@@ -81,7 +81,7 @@ class LinuxListenerLifecycleTest(unittest.TestCase):
 
     def listener(self, grab=False):
         return self.module.TriggerListener(
-            {"shortcut_key": "KEY_F8", "shortcut_device": "", "grab": grab},
+            {"shortcut_key": "KEY_F8", "grab": grab},
             Mock(),
             Mock(),
             Mock(),
@@ -227,7 +227,7 @@ class LinuxListenerLifecycleTest(unittest.TestCase):
         self.evdev.UInput.from_device.return_value = twin
         on_down, on_up = Mock(), Mock()
         listener = self.module.TriggerListener(
-            {"shortcut_key": "KEY_LEFTCTRL+KEY_F8", "shortcut_device": "", "grab": True},
+            {"shortcut_key": "KEY_LEFTCTRL+KEY_F8", "grab": True},
             on_down,
             on_up,
             Mock(),
@@ -253,6 +253,29 @@ class LinuxListenerLifecycleTest(unittest.TestCase):
         on_down.assert_called_once()
         on_up.assert_called_once()
 
+    def start_with(self, shortcut, devices):
+        listener = self.module.TriggerListener(
+            {"shortcut_key": shortcut, "grab": True}, Mock(), Mock(), Mock()
+        )
+        self.addCleanup(listener.stop)
+        with patch.object(self.module, "_real_devices", return_value=devices):
+            listener.start()
+        return listener
+
+    def test_grab_takes_only_devices_that_have_the_hidden_key(self):
+        self.evdev.ecodes.ecodes.update(KEY_LEFTCTRL=29)
+        keyboard, mouse = self.device([29, 66]), self.device([29])
+        self.start_with("KEY_LEFTCTRL+KEY_F8", [keyboard, mouse])
+        keyboard.grab.assert_called_once()
+        mouse.grab.assert_not_called()
+
+    def test_modifier_only_shortcut_is_never_grabbed(self):
+        self.evdev.ecodes.ecodes.update(KEY_RIGHTCTRL=97)
+        keyboard = self.device([97])
+        listener = self.start_with("KEY_RIGHTCTRL", [keyboard])
+        keyboard.grab.assert_not_called()
+        self.assertFalse(listener.grab)
+
     def test_a_device_unplugged_while_listing_is_skipped(self):
         good = self.device([66])
         self.evdev.list_devices = Mock(return_value=["gone", "good"])
@@ -266,7 +289,7 @@ class LinuxListenerLifecycleTest(unittest.TestCase):
         os.write(gone.write_fd, b"x")
         with patch.object(self.module, "_real_devices", return_value=[gone, good]):
             found = self.module.capture_next_input(2)
-        self.assertEqual(found, ("KEY_F8", "test keyboard"))
+        self.assertEqual(found, "KEY_F8")
 
     def test_warning_says_when_a_key_still_reaches_other_apps(self):
         cases = {
@@ -279,7 +302,7 @@ class LinuxListenerLifecycleTest(unittest.TestCase):
         }
         for (shortcut, grab), expected in cases.items():
             listener = self.module.TriggerListener(
-                {"shortcut_key": shortcut, "shortcut_device": "", "grab": grab},
+                {"shortcut_key": shortcut, "grab": grab},
                 Mock(),
                 Mock(),
                 Mock(),

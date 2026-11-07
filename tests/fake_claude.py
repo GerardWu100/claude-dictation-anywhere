@@ -4,6 +4,7 @@ Started in a real pty by ClaudeVoiceSession. Reads FAKE_CLAUDE_OPTIONS (JSON):
 
     startup          "prompt" | "trust" | "trust_changed" | "menu" | "logged_out" | "exit"
                      | "unknown_option"
+    trust_deaf_s     the trust dialog drops keys for this long after it shows (2.1.318)
     transcript       text that arrives when processing ends
     processing_s     how long "Voice: processing…" stays up
     notice           error notice shown when processing ends
@@ -63,6 +64,8 @@ def read_keys() -> bytes:
 def trust_dialog(changed: bool) -> None:
     yes = "Sure, trust it" if changed else "Yes, I trust this folder"
     selected = 0
+    # Like Claude Code 2.1.318: the dialog shows before keys are read, and those are lost.
+    deaf_until = time.monotonic() + options.get("trust_deaf_s", 0)
     while True:
         rows = ["No, exit", yes]
         draw(
@@ -71,6 +74,8 @@ def trust_dialog(changed: bool) -> None:
             + ["", " Enter to confirm · Esc to cancel"]
         )
         data = read_keys()
+        while time.monotonic() < deaf_until:  # dropped without a redraw
+            data = read_keys()
         if b"\x1b[B" in data:
             selected = 1
         if b"\r" in data:
