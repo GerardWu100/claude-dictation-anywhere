@@ -3,6 +3,7 @@ title: "Emprunter la dictée /voice de Claude Code pour toutes les applications"
 description: "Claude Dictation Anywhere est une petite application pour Linux et macOS. Maintenez une touche, parlez, et la transcription /voice de Claude Code arrive sous votre curseur, dans n'importe quelle application. Voici comment elle pilote un Claude Code caché et place le texte dans la bonne fenêtre."
 date: 2026-10-27
 image: images/banner.png
+repo: https://github.com/GerardWu100/claude-dictation-anywhere
 categories: ["Intelligence artificielle", "Informatique", "Divers"]
 ---
 # Emprunter la dictée /voice de Claude Code pour toutes les applications
