@@ -10,3 +10,7 @@ Guiding principles:
 - **Be sparing with real dictation requests when testing.** Prefer startup-only checks; a real recording only when it proves something new.
 
 Layout: `src/claude_dictation_anywhere/` (`claude_session` drives Claude Code, `terminal_screen` reads its screen, `hotkeys` reads the shortcut, `mac_events` is the macOS event tap, typing and permission checks, `controller` is the state machine, `output` types or copies, `web_ui` + `web/index.html` are the settings page, `tray` the menu, `icon` draws it). Tests: `uv run python -m unittest discover -s tests`; they use `tests/fake_claude.py` in a real pty and screens recorded from real Claude Code in `tests/fixtures/`, so ordinary test runs need no login, microphone, or network. `CDA_LIVE_LINUX=1 uv run python -m unittest tests.test_live_linux` adds real kernel input, ydotool, PipeWire, tray, and the whole app on a Linux desktop, still with the fake Claude Code; quit the real app and do not type meanwhile. Lint: `uv run ruff check src tests && uv run ruff format src tests`.
+
+## Public project: privacy
+
+Strangers can see this project: its published output, and for public repositories every file and commit. Never write the owner's email, local paths (such as `/Users/<user>`), account numbers or IDs, holdings or trades, names, code or data from private repositories, server addresses, or other people's details. This also applies to anything copied in from other projects. The owner's name is allowed only where it is already public, such as the website byline. When unsure, leave it out and ask.
