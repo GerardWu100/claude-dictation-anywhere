@@ -7,7 +7,7 @@ Run from anywhere:
 Outputs (overwritten each run), in ``blog/images/``:
 
     dictation-flow.png   one dictation, from key press to cursor, in two lanes
-    banner.png           cover image for the post's ``image:`` frontmatter
+    cover.png            cover image for the post's ``image:`` frontmatter
 
 The timings printed on the flow diagram are single measurements recorded in the
 project's TRAIL_NOTES.md (warm-up, release -> "Voice: processing…" -> final text)
@@ -163,8 +163,8 @@ def draw_banner(path: Path) -> None:
 def main() -> None:
     IMAGES_DIR.mkdir(exist_ok=True)
     draw_flow_diagram(IMAGES_DIR / "dictation-flow.png")
-    draw_banner(IMAGES_DIR / "banner.png")
-    print(f"wrote {IMAGES_DIR / 'dictation-flow.png'} and {IMAGES_DIR / 'banner.png'}")
+    draw_banner(IMAGES_DIR / "cover.png")
+    print(f"wrote {IMAGES_DIR / 'dictation-flow.png'} and {IMAGES_DIR / 'cover.png'}")
 
 
 if __name__ == "__main__":
