@@ -29,6 +29,7 @@ sys.path.insert(0, str(PROJECT_DIR / "src"))
 from claude_dictation_anywhere.icon import draw_icon  # noqa: E402  (needs the path above)
 
 DPI = 200
+BANNER_DPI = 100  # 16x6 in figure -> 1600x600, the size every post banner uses
 CLAUDE_ORANGE = "#d97757"
 HIDDEN_SLATE = "#3d3d3a"
 PAGE_BACKGROUND = "#faf9f5"
@@ -134,22 +135,28 @@ def draw_flow_diagram(path: Path) -> None:
 
 
 def draw_banner(path: Path) -> None:
-    """Cover image: the app's own tray icon, its name, and the icon's recording-state colours."""
-    figure, axes = plt.subplots(figsize=(16, 6), constrained_layout=True)
+    """Cover image: the app's tray icon, its name on two lines, and the recording-state icons.
+
+    The site shows covers as small cards (about 330 px wide, cropped), so the name is set
+    on two lines in a large font and the state icons are big enough to read at that size.
+    Layout is in data units (x: 0..16, y: 0..6); saved at BANNER_DPI -> 1600x600 pixels.
+    """
+    figure, axes = plt.subplots(figsize=(16, 6))
+    figure.subplots_adjust(0, 0, 1, 1)  # no margins: the axes fill the whole banner
     figure.patch.set_facecolor(DARK_BACKGROUND)
-    axes.set_facecolor(DARK_BACKGROUND)
     axes.set_xlim(0, 16)
     axes.set_ylim(0, 6)
     axes.axis("off")
-    main_icon = draw_icon("idle", size=512)
-    axes.imshow(main_icon, extent=(0.9, 4.4, 1.25, 4.75), aspect="auto", zorder=2)
-    axes.text(5.2, 3.4, "Claude Dictation Anywhere", fontsize=46, fontweight="bold",
-              color="white", va="center", family=FONT)  # fmt: skip
+    main_icon = draw_icon("idle", size=1024)
+    axes.imshow(main_icon, extent=(0.8, 4.8, 1.0, 5.0), aspect="auto", zorder=2,
+                interpolation="lanczos")  # fmt: skip
+    axes.text(5.6, 3.75, "Claude Dictation\nAnywhere", fontsize=60, fontweight="bold",
+              color="white", va="center", family=FONT, linespacing=1.1)  # fmt: skip
     for index, state in enumerate(("starting", "listening", "transcribing")):
-        left = 5.25 + index * 0.95
-        axes.imshow(draw_icon(state, size=128), extent=(left, left + 0.7, 1.65, 2.35),
-                    aspect="auto", zorder=2)  # fmt: skip
-    figure.savefig(path, dpi=DPI // 2, facecolor=figure.get_facecolor())
+        left = 5.65 + index * 1.35
+        axes.imshow(draw_icon(state, size=256), extent=(left, left + 1.05, 0.85, 1.9),
+                    aspect="auto", zorder=2, interpolation="lanczos")  # fmt: skip
+    figure.savefig(path, dpi=BANNER_DPI, facecolor=figure.get_facecolor())
     plt.close(figure)
 
 

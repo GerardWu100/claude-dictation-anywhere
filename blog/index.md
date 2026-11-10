@@ -1,7 +1,7 @@
 ---
 title: "Borrowing Claude Code's /voice Dictation for Every App"
 description: "Claude Dictation Anywhere is a small Linux and macOS app. Hold a key, speak, and Claude Code's own /voice transcript lands at your cursor in any app. Here is how it drives a hidden Claude Code and gets the text into the right window."
-date: 2026-10-27
+date: 2026-11-08T12:00:00
 image: images/banner.png
 repo: https://github.com/GerardWu100/claude-dictation-anywhere
 categories: ["Artificial Intelligence", "Computer Science", "Random Stuff"]
